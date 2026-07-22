@@ -48,6 +48,10 @@ htmlcov/
 *.zip
 !profiles/*.zip
 
+# KBO data directory — operational data, not source code
+data/kbo/*.zip
+data/kbo/*.csv
+
 # Raw data files
 data/raw/
 data/local/
