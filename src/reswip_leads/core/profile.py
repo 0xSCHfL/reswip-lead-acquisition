@@ -24,12 +24,19 @@ class Profile:
 
 
 def load_profile(name: str, profiles_dir: Optional[Path] = None) -> Profile:
-    """Load a YAML profile by name from the ``profiles/`` directory.
+    """Load a YAML profile by name or full path.
+
+    Accepts either a profile name (e.g. ``"energy"``) resolved from the
+    profiles directory, or a full path to a YAML file.
 
     Raises ``FileNotFoundError`` if the profile file does not exist.
     """
-    directory = profiles_dir or _PROFILES_DIR
-    path = directory / f"{name}.yaml"
+    candidate = Path(name)
+    if candidate.suffix in (".yaml", ".yml") and candidate.exists():
+        path = candidate
+    else:
+        directory = profiles_dir or _PROFILES_DIR
+        path = directory / f"{name}.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Profile not found: {path}")
 
