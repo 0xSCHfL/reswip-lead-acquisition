@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Secrets and credentials
+*credentials*
+*secrets*
+*proxy*
+*proxies*
+*.key
+*.pem
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# KBO ZIP files
+*.zip
+!profiles/*.zip
+
+# Raw data files
+data/raw/
+data/local/
+data/proxies/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
