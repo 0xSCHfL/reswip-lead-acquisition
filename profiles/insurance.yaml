@@ -1,0 +1,17 @@
+name: insurance
+description: Insurance sector lead acquisition profile
+
+sources:
+  - iqualif
+  - kbo
+
+filters:
+  industry:
+    - insurance
+    - assurance
+    - broking
+
+enrichment:
+  - company_info
+  - contact_details
+  - insurance_licenses

@@ -1,0 +1,17 @@
+name: energy
+description: Energy sector lead acquisition profile
+
+sources:
+  - iqualif
+  - kbo
+
+filters:
+  industry:
+    - energy
+    - renewable energy
+    - utilities
+
+enrichment:
+  - company_info
+  - contact_details
+  - energy_certificates
