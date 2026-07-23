@@ -124,6 +124,24 @@ class TestLeadModel:
         assert lead.region == "Wallonia"
         assert lead.language == "FR"
 
+    def test_category_field(self):
+        lead = Lead(company_name="X", tva="0123456789", category="Energy")
+        assert lead.category == "Energy"
+
+    def test_category_default_empty(self):
+        lead = Lead(company_name="X", tva="0123456789")
+        assert lead.category == ""
+
+    def test_to_dict_includes_category(self):
+        lead = Lead(company_name="Acme", tva="0123456789", category="Insurance")
+        d = lead.to_dict()
+        assert d["Category"] == "Insurance"
+
+    def test_from_dict_includes_category(self):
+        d = {"Company Name": "Acme", "VAT Number": "0123456789", "Category": "Health"}
+        lead = Lead.from_dict(d)
+        assert lead.category == "Health"
+
 
 # ── Belgian Fields ─────────────────────────────────────────────────
 
@@ -202,6 +220,8 @@ class TestProfileLoading:
     def test_load_insurance_profile(self):
         profile = load_profile("insurance")
         assert profile.name == "insurance"
+        assert profile.extra.get("organization") == "Reswip Insurance"
+        assert profile.extra.get("lead_source") == "Insurance Prospect"
 
     def test_unknown_profile_raises(self):
         with pytest.raises(FileNotFoundError):

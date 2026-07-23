@@ -15,3 +15,6 @@ enrichment:
   - company_info
   - contact_details
   - insurance_licenses
+
+organization: Reswip Insurance
+lead_source: Insurance Prospect

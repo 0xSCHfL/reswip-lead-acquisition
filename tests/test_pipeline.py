@@ -490,6 +490,7 @@ class TestFullPipelineEndToEnd:
         assert os.path.exists(result.paths["normalized"])
         assert os.path.exists(result.paths["crm"])
         assert os.path.exists(result.paths["report"])
+        assert os.path.exists(result.paths["raw"])
 
         # Report is valid
         report = result.report
@@ -570,11 +571,13 @@ class _FakeEnricher:
         result: Optional[Dict[str, Any]] = None,
         signature: str = "two",
         raises: bool = False,
+        source_name: str = "fake",
     ) -> None:
         self.result = result
         self.signature = signature
         self.raises = raises
         self.calls: List[Any] = []
+        self.SOURCE_NAME = source_name
 
     def enrich(self, *args: Any) -> Dict[str, Any]:
         self.calls.append(args)
@@ -896,6 +899,76 @@ class TestLeadPipelineEnrichStage:
         enrich_stage = next(s for s in result.stages if s.name == "enrich")
         assert enrich_stage.notes["enriched_count"] == 0
 
+    def test_enrichment_metrics_pappers_enriched(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789")
+        pappers = _FakeEnricher(
+            {"first_name": "Jean", "last_name": "Dupont"}, source_name="pappers"
+        )
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            pappers=pappers,
+        ).run()
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["pappers_enriched"] == 1
+        assert enrich_stage.notes["kbo_enriched"] == 0
+        assert enrich_stage.notes["first_names_found"] == 1
+        assert enrich_stage.notes["last_names_found"] == 1
+
+    def test_enrichment_metrics_no_match(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789")
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            pappers=None,
+            kbo_web=None,
+        ).run()
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["no_match"] == 1
+        assert enrich_stage.notes["enriched_count"] == 0
+        assert enrich_stage.notes["errors_count"] == 0
+
+    def test_enrichment_metrics_kbo_enriched(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789")
+        kbo = _FakeEnricher({"email": "info@acme.test"}, source_name="kbo_web")
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            pappers=None,
+            kbo_web=kbo,
+        ).run()
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["kbo_enriched"] == 1
+        assert enrich_stage.notes["pappers_enriched"] == 0
+
+    def test_enrichment_metrics_errors(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789")
+        pappers = _FakeEnricher(raises=True)
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            pappers=pappers,
+        ).run()
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["errors_count"] == 1
+        assert enrich_stage.notes["enriched_count"] == 0
+
 
 # ── LeadPipeline: classify stage ───────────────────────────────────
 
@@ -1134,3 +1207,134 @@ class TestPipelineStageMetrics:
             "errors": ["one failure"],
             "notes": {"duplicates_removed": 3},
         }
+
+
+# ── Enricher wiring ────────────────────────────────────────────────
+
+
+class TestEnricherWiring:
+    def test_build_enrichers_both(self):
+        from reswip_leads.pipeline import _build_enrichers
+        from reswip_leads.enrichment.pappers import PappersEnricher
+        from reswip_leads.enrichment.kbo_web import KboWebEnricher
+
+        result = _build_enrichers("both")
+        assert isinstance(result["pappers"], PappersEnricher)
+        assert isinstance(result["kbo_web"], KboWebEnricher)
+
+    def test_build_enrichers_pappers_only(self):
+        from reswip_leads.pipeline import _build_enrichers
+        from reswip_leads.enrichment.pappers import PappersEnricher
+
+        result = _build_enrichers("pappers")
+        assert isinstance(result["pappers"], PappersEnricher)
+        assert "kbo_web" not in result
+
+    def test_build_enrichers_kbo_web_only(self):
+        from reswip_leads.pipeline import _build_enrichers
+        from reswip_leads.enrichment.kbo_web import KboWebEnricher
+
+        result = _build_enrichers("kbo-web")
+        assert isinstance(result["kbo_web"], KboWebEnricher)
+        assert "pappers" not in result
+
+    def test_build_enrichers_none(self):
+        from reswip_leads.pipeline import _build_enrichers
+
+        result = _build_enrichers("none")
+        assert result == {}
+
+    def test_build_enrichers_with_proxy(self):
+        from reswip_leads.pipeline import _build_enrichers
+
+        proxy = {"http": "http://proxy:8080", "https": "http://proxy:8080"}
+        result = _build_enrichers("both", proxy=proxy)
+        assert result["pappers"].config.proxy == proxy
+        assert result["kbo_web"].config.proxy == proxy
+
+
+class TestLoadProxyFile:
+    def test_load_proxy_file(self, tmp_path):
+        from reswip_leads.pipeline import _load_proxy_file
+
+        proxy_file = tmp_path / "proxies.txt"
+        proxy_file.write_text("http://user:pass@host1:8080\nsocks5://host2:1080\n")
+        result = _load_proxy_file(str(proxy_file))
+        assert result == {"http": "http://user:pass@host1:8080", "https": "http://user:pass@host1:8080"}
+
+    def test_load_proxy_file_skips_comments(self, tmp_path):
+        from reswip_leads.pipeline import _load_proxy_file
+
+        proxy_file = tmp_path / "proxies.txt"
+        proxy_file.write_text("# comment\nhttp://proxy:8080\n")
+        result = _load_proxy_file(str(proxy_file))
+        assert result == {"http": "http://proxy:8080", "https": "http://proxy:8080"}
+
+    def test_load_proxy_file_missing(self):
+        from reswip_leads.pipeline import _load_proxy_file
+
+        result = _load_proxy_file("/nonexistent/proxies.txt")
+        assert result is None
+
+    def test_load_proxy_file_empty(self, tmp_path):
+        from reswip_leads.pipeline import _load_proxy_file
+
+        proxy_file = tmp_path / "empty.txt"
+        proxy_file.write_text("")
+        result = _load_proxy_file(str(proxy_file))
+        assert result is None
+
+
+class TestRunPipelineWithEnrichers:
+    def test_run_pipeline_enricher_flag(self, tmp_path, sample_csv):
+        from reswip_leads.pipeline import run_pipeline
+        from reswip_leads.enrichment.pappers import PappersEnricher
+
+        output = tmp_path / "output.csv"
+        # Use pappers only, with a mock enricher injected via kwargs
+        mock_pappers = PappersEnricher()
+        mock_pappers.enrich = lambda tva, name="": {"status": "no_match"}
+
+        result = run_pipeline(
+            profile_name="energy",
+            input_csvs=[sample_csv],
+            output_path=str(output),
+            enricher="pappers",
+            pappers=mock_pappers,
+            kbo_web=None,
+        )
+        assert result.success
+
+    def test_run_pipeline_enricher_none(self, tmp_path, sample_csv):
+        from reswip_leads.pipeline import run_pipeline
+
+        output = tmp_path / "output.csv"
+        result = run_pipeline(
+            profile_name="energy",
+            input_csvs=[sample_csv],
+            output_path=str(output),
+            enricher="none",
+        )
+        assert result.success
+
+
+class TestPipelineConfigEnricher:
+    def test_config_enricher_default(self):
+        config = PipelineConfig(
+            profile_path="profiles/energy.yaml",
+            input_path="data/input.csv",
+            output_dir="output/",
+        )
+        assert config.enricher == "both"
+        assert config.proxy_file is None
+
+    def test_config_enricher_custom(self):
+        config = PipelineConfig(
+            profile_path="profiles/energy.yaml",
+            input_path="data/input.csv",
+            output_dir="output/",
+            enricher="pappers",
+            proxy_file="/tmp/proxies.txt",
+        )
+        assert config.enricher == "pappers"
+        assert config.proxy_file == "/tmp/proxies.txt"

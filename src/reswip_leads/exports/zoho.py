@@ -32,6 +32,7 @@ ZOHO_COLUMNS = [
     "Position",
     "Contact First Name",
     "Contact Last Name",
+    "Category",
     "Organization",
     "Lead Source",
 ]
@@ -64,6 +65,7 @@ def _lead_to_row(lead: Lead, profile: Optional[Profile] = None) -> dict[str, str
         "Position": lead.position or "",
         "Contact First Name": lead.first_name or "",
         "Contact Last Name": lead.last_name or "",
+        "Category": lead.category or "",
         "Organization": org,
         "Lead Source": source,
     }

@@ -56,6 +56,7 @@ class Lead:
     website: Optional[str] = None
 
     # Metadata
+    category: str = ""
     source: str = ""
     nace_codes: str = ""
     status: str = ""
@@ -85,6 +86,7 @@ class Lead:
         "phone": "Office Phone",
         "mobile": "Mobile Phone",
         "website": "Website",
+        "category": "Category",
         "source": "Source",
         "nace_codes": "NACE Codes",
         "status": "Status",

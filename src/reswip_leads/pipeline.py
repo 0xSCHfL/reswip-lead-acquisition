@@ -54,6 +54,8 @@ class PipelineConfig:
     export_format: str = "csv"
     dry_run: bool = False
     force: bool = False
+    enricher: str = "both"
+    proxy_file: Optional[str] = None
 
 
 # ── Result types ───────────────────────────────────────────────────
@@ -237,6 +239,7 @@ class Pipeline:
         base = self.config.output_dir
         ext = ".xlsx" if self.config.export_format == "xlsx" else ".csv"
         return {
+            "raw": os.path.join(base, "Raw", f"{name}_raw.csv"),
             "normalized": os.path.join(base, "Normalized", f"{name}_normalized.csv"),
             "enriched": os.path.join(base, "Enriched", f"{name}_enriched.csv"),
             "clean": os.path.join(base, "Clean", f"{name}_clean.csv"),
@@ -264,6 +267,13 @@ class Pipeline:
         # Ensure directories exist
         for path in paths.values():
             os.makedirs(os.path.dirname(path), exist_ok=True)
+
+        # Copy raw input
+        import shutil
+        raw_src = self.config.input_path
+        raw_dst = paths.get("raw", "")
+        if raw_src and raw_dst and os.path.exists(raw_src):
+            shutil.copy2(raw_src, raw_dst)
 
         # Normalized CSV
         self._write_csv(leads, paths["normalized"])
@@ -530,22 +540,50 @@ class LeadPipeline:
         metrics = PipelineStageMetrics(
             name="enrich", input_count=len(leads), output_count=len(leads)
         )
-        enriched = 0
+        pappers_enriched = 0
+        kbo_enriched = 0
+        no_match = 0
+        first_names_found = 0
+        last_names_found = 0
         for lead in leads:
             if not lead.tva:
                 continue
+            lead_enriched = False
             for enricher in (self.pappers, self.kbo_web):
                 if enricher is None:
                     continue
+                source_name = getattr(enricher, "SOURCE_NAME", "unknown")
                 try:
                     if self._apply_enrichment(lead, enricher):
-                        enriched += 1
+                        lead_enriched = True
+                        if source_name == "pappers":
+                            pappers_enriched += 1
+                        elif source_name == "kbo_web":
+                            kbo_enriched += 1
                 except Exception as exc:  # noqa: BLE001
                     metrics.errors.append(
                         f"enrich failed for {lead.tva} via "
                         f"{type(enricher).__name__}: {exc}"
                     )
-        metrics.notes["enriched_count"] = enriched
+            if not lead_enriched and lead.tva:
+                no_match += 1
+            if lead.first_name:
+                first_names_found += 1
+            if lead.last_name:
+                last_names_found += 1
+
+        total_enriched = pappers_enriched + kbo_enriched
+        metrics.notes.update(
+            {
+                "enriched_count": total_enriched,
+                "pappers_enriched": pappers_enriched,
+                "kbo_enriched": kbo_enriched,
+                "no_match": no_match,
+                "first_names_found": first_names_found,
+                "last_names_found": last_names_found,
+                "errors_count": len(metrics.errors),
+            }
+        )
         self._record(metrics)
         return leads
 
@@ -671,6 +709,56 @@ class LeadPipeline:
         )
 
 
+# ── Enricher helpers ───────────────────────────────────────────────
+
+
+def _load_proxy_file(path: str) -> Optional[Dict[str, str]]:
+    """Load a proxy rotator file and return the first proxy as a requests-style dict.
+
+    The file should contain one proxy URL per line, e.g.::
+
+        http://user:pass@host1:8080
+        socks5://host2:1080
+
+    Returns ``{"http": url, "https": url}`` for the first non-empty,
+    non-comment line, or ``None`` if the file is empty / missing.
+    """
+    try:
+        from pathlib import Path
+        for line in Path(path).read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            return {"http": line, "https": line}
+    except Exception:
+        pass
+    return None
+
+
+def _build_enrichers(
+    enricher: str, proxy: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """Instantiate enricher objects based on the ``--enricher`` flag.
+
+    Returns a dict with ``pappers`` and/or ``kbo_web`` keys suitable
+    for passing as ``**kwargs`` to :class:`LeadPipeline`.
+    """
+    from reswip_leads.enrichment.base import EnrichmentConfig
+    from reswip_leads.enrichment.kbo_web import KboWebEnricher
+    from reswip_leads.enrichment.pappers import PappersEnricher
+
+    config = EnrichmentConfig(proxy=proxy) if proxy else EnrichmentConfig()
+    result: Dict[str, Any] = {}
+
+    choice = (enricher or "both").lower().strip()
+    if choice in ("pappers", "both"):
+        result["pappers"] = PappersEnricher(config=config)
+    if choice in ("kbo-web", "kbo_web", "kboweb", "both"):
+        result["kbo_web"] = KboWebEnricher(config=config)
+
+    return result
+
+
 # ── Convenience wrapper ────────────────────────────────────────────
 
 
@@ -680,20 +768,37 @@ def run_pipeline(
     output_path: str,
     kbo_zip_path: Optional[str] = None,
     output_format: str = "csv",
+    enricher: str = "both",
+    proxy_file: Optional[str] = None,
     **kwargs: Any,
 ) -> LeadPipelineResult:
     """Build a :class:`LeadPipeline` from a profile name and run it.
 
     All collaborators can still be overridden through ``**kwargs`` for
     tests; production callers can ignore them.
+
+    Args:
+        enricher: Which enricher(s) to use: ``pappers``, ``kbo-web``,
+            or ``both`` (default).
+        proxy_file: Path to a proxy rotator file (one ``proto://host:port``
+            per line).  Applied to both Pappers and KBO web adapters.
     """
     profile = load_profile(profile_name)
+
+    # Build enricher kwargs — only set pappers/kbo_web if the caller
+    # did not already inject them via **kwargs.
+    enricher_kwargs: Dict[str, Any] = {}
+    if "pappers" not in kwargs and "kbo_web" not in kwargs:
+        proxy = _load_proxy_file(proxy_file) if proxy_file else None
+        enricher_kwargs = _build_enrichers(enricher, proxy)
+
     pipeline = LeadPipeline(
         profile=profile,
         output_path=output_path,
         input_csvs=input_csvs,
         kbo_zip_path=kbo_zip_path,
         output_format=output_format,
+        **enricher_kwargs,
         **kwargs,
     )
     return pipeline.run()
@@ -723,6 +828,17 @@ def main() -> None:
         default="csv",
         help="Output format (default: csv).",
     )
+    parser.add_argument(
+        "--enricher",
+        choices=["pappers", "kbo-web", "both", "none"],
+        default="both",
+        help="Enrichment adapter(s) to use (default: both).",
+    )
+    parser.add_argument(
+        "--proxy-file",
+        default=None,
+        help="Path to proxy rotator file (one proxy URL per line).",
+    )
 
     args = parser.parse_args()
 
@@ -738,6 +854,8 @@ def main() -> None:
         output_path=args.output,
         kbo_zip_path=args.kbo_zip,
         output_format=args.format,
+        enricher=args.enricher,
+        proxy_file=args.proxy_file,
     )
 
     print(

@@ -107,6 +107,7 @@ class IQualifImporter:
                     email=_pick(row, "Email", "Email Address", "Mail"),
                     phone=_pick(row, "Phone", "Telephone", "Office Phone"),
                     mobile=_pick(row, "Mobile", "Mobile Phone"),
+                    category=_pick(row, "Category", "category", "Sector", "Industry"),
                     source="iQualif",
                 )
             )

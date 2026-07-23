@@ -10,7 +10,7 @@ from reswip_leads.exports.zoho import export_csv, export_xlsx, ZOHO_COLUMNS
 
 class TestZohoColumnOrder:
     def test_column_count(self):
-        assert len(ZOHO_COLUMNS) == 20
+        assert len(ZOHO_COLUMNS) == 21
 
     def test_expected_columns(self):
         expected = [
@@ -32,6 +32,7 @@ class TestZohoColumnOrder:
             "Position",
             "Contact First Name",
             "Contact Last Name",
+            "Category",
             "Organization",
             "Lead Source",
         ]
@@ -158,6 +159,26 @@ class TestContactFirstLast:
             row = next(reader)
         assert row["Contact First Name"] == "Jean"
         assert row["Contact Last Name"] == "Dupont"
+
+
+class TestCategoryExport:
+    def test_category_exported(self, tmp_path):
+        leads = [Lead(company_name="Acme", tva="0123456789", category="Energy")]
+        out = tmp_path / "out.csv"
+        export_csv(leads, str(out))
+        with open(out, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            row = next(reader)
+        assert row["Category"] == "Energy"
+
+    def test_empty_category_exported_empty(self, tmp_path):
+        leads = [Lead(company_name="Acme", tva="0123456789")]
+        out = tmp_path / "out.csv"
+        export_csv(leads, str(out))
+        with open(out, encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            row = next(reader)
+        assert row["Category"] == ""
 
 
 class TestExportXlsx:
