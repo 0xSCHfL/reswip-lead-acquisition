@@ -51,6 +51,7 @@ class Lead:
     last_name: Optional[str] = None
     position: Optional[str] = None
     email: Optional[str] = None
+    email1: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
     fax: Optional[str] = None

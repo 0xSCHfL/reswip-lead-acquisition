@@ -172,7 +172,7 @@ def energy_lead_to_row(
         "First Name": lead.first_name or "",
         "Last Name": (lead.last_name or "").upper(),
         "Position": lead.position or "",
-        "Email 1": lead.email or "",
+        "Email 1": lead.email1 or lead.email or "",
         "Contact First Name": lead.first_name or "",
         "Contact Last Name": (lead.last_name or "").upper(),
         "PreLead Prospect Name": prelead,
