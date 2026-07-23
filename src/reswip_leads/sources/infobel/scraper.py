@@ -71,7 +71,7 @@ class InfobelScraper:
         self.executable_path = executable_path
         self.timeout_ms = timeout_ms
 
-    def scrape(self, category_url: str) -> List[InfobelRecord]:
+    def scrape(self, category_url: str, limit: Optional[int] = None) -> List[InfobelRecord]:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:  # pragma: no cover - environment-dependent
@@ -95,7 +95,7 @@ class InfobelScraper:
                     detail_urls.append(absolute)
 
             records = []
-            for detail_url in detail_urls:
+            for detail_url in detail_urls[:limit] if limit else detail_urls:
                 try:
                     records.append(self._scrape_detail(context, detail_url, category_url))
                 except Exception:
@@ -190,9 +190,10 @@ def main() -> int:
     parser.add_argument("--search-term", help="Homepage search term, e.g. Restaurant")
     parser.add_argument("--location", help="Homepage search location, e.g. Aubel or 4880")
     parser.add_argument("--output", required=True, help="Output CSV path")
+    parser.add_argument("--limit", type=int, default=None, help="Maximum detail pages to scrape")
     args = parser.parse_args()
     if args.url:
-        records = InfobelScraper().scrape(args.url)
+        records = InfobelScraper().scrape(args.url, limit=args.limit)
     elif args.search_term and args.location:
         records = InfobelScraper().scrape_search(args.search_term, args.location)
     else:
