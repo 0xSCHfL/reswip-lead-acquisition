@@ -67,6 +67,37 @@ _PHONE_RE = re.compile(
 )
 _HREF_RE = re.compile(r'href="([^"]+)"', re.IGNORECASE)
 
+# Map KBO function labels to short CRM positions.
+_FUNCTION_MAP: Dict[str, str] = {
+    # French — natural-person compound labels
+    "oprichter van een geregistreerde entiteit-natuurlijk persoon": "Founder",
+    "fondateur d\u2019une entit\u00e9 enregistr\u00e9e-personne physique": "Founder",
+    "fondateur d'une entité enregistrée-personne physique": "Founder",
+    # French — standard functions
+    "administrateur": "Administrator",
+    "gérant": "Manager",
+    "directeur": "Director",
+    "président": "President",
+    "administrateur délégué": "Managing Director",
+    "représentant permanent": "Permanent Representative",
+    # Dutch — standard functions
+    "bestuurder": "Administrator",
+    "zaakvoerder": "Manager",
+    "voorzitter": "President",
+    "gedelegeerd bestuurder": "Managing Director",
+    "permanent vertegenwoordiger": "Permanent Representative",
+}
+
+# Generic website/navigation URLs to ignore
+_GENERIC_URL_PATTERNS: tuple = (
+    "belgium.be",
+    "economie.fgov.be",
+    "kbopub.economie.fgov.be",
+    "ehealth.fgov.be",
+    "kruispuntbank.be",
+    "onderzoeksregister.be",
+)
+
 
 # ── Parsed page ────────────────────────────────────────────────────
 
@@ -209,17 +240,132 @@ def _extract_address(soup: Any) -> tuple:
 def _extract_directors(soup: Any) -> List[Dict[str, str]]:
     """Extract directors as a list of ``{first_name, last_name, function}``.
 
-    The KBO page lists mandate holders in a ``<dl>`` definition list.
-    The ``<dt>`` label may contain the role/function (e.g. "Gérant",
-    "Bestuurder", "Administrateur délégué") and the ``<dd>`` contains
-    the person's name, optionally followed by a comma and the function.
+    The KBO page lists mandate holders in either:
+
+    1. A ``<dl>`` definition list (older format): ``<dt>`` label contains
+       the role/function, ``<dd>`` contains the person's name.
+    2. A ``<table>`` (newer format): first ``<td>`` = function, second
+       ``<td>`` = person name.
 
     This function recognises French and Dutch mandate labels and
-    extracts the function from the ``<dt>`` label when it is not
-    present in the ``<dd>`` text.
+    extracts the function from the label when it is not present in
+    the person name text.
     """
     directors: List[Dict[str, str]] = []
     seen: set = set()
+
+    # Strategy 1: Try table-based parsing (newer KBO format).
+    directors = _extract_directors_from_tables(soup, seen)
+
+    # Strategy 2: Fall back to definition list parsing (older format).
+    if not directors:
+        directors = _extract_directors_from_dl(soup, seen)
+
+    return directors
+
+
+def _extract_directors_from_tables(soup: Any, seen: set) -> List[Dict[str, str]]:
+    """Extract directors from the KBO page structure.
+
+    The KBO page uses a flat table structure where:
+    - ``<h2>Functies</h2>`` (or Fonctions/Functions) is inside a ``<td>``
+    - Function rows are subsequent ``<tr>`` elements with ``<td>`` cells:
+      first cell = function, second cell = person name, third cell = date.
+    """
+    directors: List[Dict[str, str]] = []
+
+    # Find section headings that indicate function sections.
+    _FUNC_HEADINGS = {"functies", "fonctions", "functions"}
+    for heading in soup.find_all(["h2", "h3", "h4"]):
+        heading_text = heading.get_text(strip=True).lower()
+        if heading_text not in _FUNC_HEADINGS:
+            continue
+
+        # Walk subsequent sibling <tr> elements until we hit another heading.
+        # The heading is inside a <td> inside a <tr>, so we need to go up to
+        # the parent <tr> and then walk siblings.
+        parent_td = heading.parent
+        if parent_td is None:
+            continue
+        parent_tr = parent_td.parent
+        if parent_tr is None:
+            continue
+
+        # Walk subsequent <tr> siblings.
+        for row in parent_tr.find_next_siblings("tr"):
+            cells = row.find_all("td")
+            if len(cells) < 2:
+                continue
+
+            # Check if this row contains a new heading (stop marker).
+            if cells[0].find(["h2", "h3", "h4"]):
+                break
+
+            func_text = " ".join(cells[0].get_text().split())
+            name_text = " ".join(cells[1].get_text().split())
+            if not func_text or not name_text:
+                continue
+
+            # First try normalizing the full raw text (handles long labels).
+            function = _normalize_function(func_text)
+            # If no normalization matched, extract from label.
+            if function == func_text:
+                function = _function_from_label(func_text.lower())
+                function = _normalize_function(function)
+
+            # Handle "Last, First" format from table cells.
+            parsed_name, dd_function = _split_table_name(name_text)
+            if not parsed_name:
+                continue
+
+            function = dd_function or function
+
+            key = " ".join(parsed_name).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            directors.append(
+                {
+                    "first_name": parsed_name[0],
+                    "last_name": " ".join(parsed_name[1:]).strip(),
+                    "function": function,
+                }
+            )
+
+    return directors
+
+
+def _split_table_name(text: str) -> tuple:
+    """Split a table cell name into ``(name_parts, function)``.
+
+    Table cells use "Last, First" format (e.g. "Jansen, Pieter") or
+    "First Last" format. The comma separates last name from first name
+    in the table context, not a function.
+    """
+    if not text:
+        return ([], "")
+    text = text.strip()
+    # Check if it's "Last, First" format.
+    if "," in text:
+        parts = [p.strip() for p in text.split(",", 1)]
+        last_name = parts[0]
+        first_name = parts[1] if len(parts) > 1 else ""
+        # Return as [first_name, last_name] for consistency.
+        name_parts = []
+        if first_name:
+            name_parts.extend(re.split(r"\s+", first_name))
+        if last_name:
+            name_parts.extend(re.split(r"\s+", last_name))
+        return (name_parts, "")
+    # "First Last" format — no function.
+    parts = re.split(r"\s+", text)
+    parts = [p for p in parts if p and p.lower() not in {"m.", "mme.", "mr.", "me.", "mlle."}]
+    return (parts, "")
+
+
+def _extract_directors_from_dl(soup: Any, seen: set) -> List[Dict[str, str]]:
+    """Extract directors from ``<dl>`` definition lists (older KBO format)."""
+    directors: List[Dict[str, str]] = []
 
     for dt in soup.find_all("dt"):
         label = dt.get_text(strip=True).lower()
@@ -229,12 +375,18 @@ def _extract_directors(soup: Any) -> List[Dict[str, str]]:
         if dd is None:
             continue
         text = " ".join(dd.get_text().split())
-        dt_function = _function_from_label(label)
+        # First try normalizing the full raw label text.
+        function = _normalize_function(label)
+        # If no normalization matched, extract from label.
+        if function == label:
+            function = _function_from_label(label)
+            function = _normalize_function(function)
         parsed_name, dd_function = _split_director_text(text)
         if not parsed_name:
             continue
         # Prefer the function from dd text (more specific), fall back to dt label.
-        function = dd_function or dt_function
+        function = dd_function or function
+        function = _normalize_function(function)
         key = " ".join(parsed_name).lower()
         if key in seen:
             continue
@@ -248,6 +400,19 @@ def _extract_directors(soup: Any) -> List[Dict[str, str]]:
         )
 
     return directors
+
+
+def _normalize_function(function: str) -> str:
+    """Normalize a function string to a short CRM position.
+
+    Long natural-person function descriptions (e.g. "Oprichter van een
+    geregistreerde entiteit-natuurlijk persoon") are mapped to short
+    positions like "Founder".
+    """
+    if not function:
+        return function
+    low = function.lower().strip()
+    return _FUNCTION_MAP.get(low, function)
 
 
 # ── Mandate label recognition ──────────────────────────────────────
@@ -270,6 +435,7 @@ _MANDATE_LABELS: tuple = (
     "gedelegeerd bestuurder",
     "voorzitter",
     "permanent vertegenwoordiger",
+    "oprichter",
     # Generic fallbacks
     "fonction",
     "mandaat",
@@ -341,13 +507,26 @@ def _extract_email(soup: Any, html: str) -> str:
 
 
 def _extract_phone(soup: Any, html: str) -> str:
-    """Pick the first phone number that does not look like a TVA."""
+    """Pick the first phone number that does not look like a TVA.
+
+    A TVA is 10 digits starting with 0 followed by the company digits
+    (e.g. 0123456789). We reject candidates that are exactly 10 digits
+    and look like a TVA pattern.
+    """
     for m in _PHONE_RE.finditer(html or ""):
         candidate = m.group(0).strip()
         digits = "".join(ch for ch in candidate if ch.isdigit())
-        # Heuristic: a phone should not equal a 10-digit TVA.
-        if len(digits) == 10 and digits.startswith("0"):
-            return candidate
+        # Reject TVA-like numbers: exactly 10 digits, often starting with 0.
+        # A real Belgian phone always has a leading 0 or +32 prefix with
+        # area code, so it won't be a bare 10-digit TVA.
+        if len(digits) == 10 and not candidate.startswith("+"):
+            # Check if it looks like a TVA (no +32 or 0032 prefix).
+            raw = candidate.replace(" ", "").replace(".", "").replace("-", "")
+            if raw.startswith("0") and not raw.startswith("00"):
+                # Could be a local phone or a TVA.  Reject if it's exactly
+                # 10 digits with no spaces/separators (TVA pattern).
+                if len(raw) == 10 and raw == digits:
+                    continue
         if len(digits) >= 9 and len(digits) <= 12:
             return candidate
     return ""
@@ -356,26 +535,36 @@ def _extract_phone(soup: Any, html: str) -> str:
 def _extract_website(soup: Any, html: str) -> str:
     """Pick the company website from the contact block.
 
-    We avoid links that point to the KBO portal itself.
+    We avoid links that point to the KBO portal itself, government
+    navigation pages, or generic Belgium websites.  Returns empty
+    when KBO says "Geen gegevens opgenomen in KBO".
     """
     if soup is not None:
+        # Check for "no data" text.
+        page_text = soup.get_text().lower()
+        if "geen gegevens opgenomen in kbo" in page_text:
+            return ""
         for a in soup.find_all("a", href=True):
             href = a["href"]
             if not href.lower().startswith("http"):
                 continue
-            low = href.lower()
-            if "kbopub" in low or "economie.fgov.be" in low:
+            if _is_generic_url(href):
                 continue
             return href
     for m in _HREF_RE.finditer(html or ""):
         href = m.group(1)
         if not href.lower().startswith("http"):
             continue
-        low = href.lower()
-        if "kbopub" in low or "economie.fgov.be" in low:
+        if _is_generic_url(href):
             continue
         return href
     return ""
+
+
+def _is_generic_url(url: str) -> bool:
+    """Return True if *url* is a generic KBO/government link to skip."""
+    low = url.lower()
+    return any(pattern in low for pattern in _GENERIC_URL_PATTERNS)
 
 
 # ── Adapter ────────────────────────────────────────────────────────

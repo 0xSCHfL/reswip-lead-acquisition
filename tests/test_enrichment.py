@@ -115,6 +115,36 @@ def kbo_no_position_html() -> str:
     return (FIXTURES / "kbo_page_no_position.html").read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="module")
+def kbo_table_nl_html() -> str:
+    return (FIXTURES / "kbo_page_table_nl.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_table_fr_html() -> str:
+    return (FIXTURES / "kbo_page_table_fr.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_table_founder_html() -> str:
+    return (FIXTURES / "kbo_page_table_founder.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_phone_tva_html() -> str:
+    return (FIXTURES / "kbo_page_phone_tva.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_generic_links_html() -> str:
+    return (FIXTURES / "kbo_page_generic_links.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_no_website_html() -> str:
+    return (FIXTURES / "kbo_page_no_website.html").read_text(encoding="utf-8")
+
+
 # ── Fake HTTP session ──────────────────────────────────────────────
 
 
@@ -965,44 +995,44 @@ class TestKboMandateExtraction:
     def test_fr_administrateur(self, kbo_mandates_fr_html):
         parsed = _parse_kbo_page(kbo_mandates_fr_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Jean", "Dupont", "Administrateur") in names_funcs
+        assert ("Jean", "Dupont", "Administrator") in names_funcs
 
     def test_fr_gerant(self, kbo_mandates_fr_html):
         parsed = _parse_kbo_page(kbo_mandates_fr_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Marie", "Curie", "Gérant") in names_funcs
+        assert ("Marie", "Curie", "Manager") in names_funcs
 
     def test_fr_president(self, kbo_mandates_fr_html):
         parsed = _parse_kbo_page(kbo_mandates_fr_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Pierre", "Martin", "Président") in names_funcs
+        assert ("Pierre", "Martin", "President") in names_funcs
 
     def test_nl_bestuurder(self, kbo_mandates_nl_html):
         parsed = _parse_kbo_page(kbo_mandates_nl_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Pieter", "Jansen", "Bestuurder") in names_funcs
+        assert ("Pieter", "Jansen", "Administrator") in names_funcs
 
     def test_nl_zaakvoerder(self, kbo_mandates_nl_html):
         parsed = _parse_kbo_page(kbo_mandates_nl_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Jan", "De Vries", "Zaakvoerder") in names_funcs
+        assert ("Jan", "De Vries", "Manager") in names_funcs
 
     def test_nl_voorzitter(self, kbo_mandates_nl_html):
         parsed = _parse_kbo_page(kbo_mandates_nl_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Maria", "Peeters", "Voorzitter") in names_funcs
+        assert ("Maria", "Peeters", "President") in names_funcs
 
     def test_mixed_administrateur_delegue(self, kbo_mandates_mixed_html):
         """Function in dt label: 'Administrateur délégué'."""
         parsed = _parse_kbo_page(kbo_mandates_mixed_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Sophie", "Lambert", "Administrateur Délégué") in names_funcs
+        assert ("Sophie", "Lambert", "Managing Director") in names_funcs
 
     def test_mixed_function_in_dd_comma(self, kbo_mandates_mixed_html):
         """Function after comma in dd text: 'Thomas Bernier, Gérant'."""
         parsed = _parse_kbo_page(kbo_mandates_mixed_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Thomas", "Bernier", "Gérant") in names_funcs
+        assert ("Thomas", "Bernier", "Manager") in names_funcs
 
     def test_mixed_no_function(self, kbo_mandates_mixed_html):
         """Person listed as Mandataris with no function — function should be empty."""
@@ -1015,19 +1045,19 @@ class TestKboMandateExtraction:
         """Dutch compound: 'Gedelegeerd bestuurder'."""
         parsed = _parse_kbo_page(kbo_mandates_mixed_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Lucas", "Vermeer", "Gedelegeerd Bestuurder") in names_funcs
+        assert ("Lucas", "Vermeer", "Managing Director") in names_funcs
 
     def test_mixed_permanent_vertegenwoordiger(self, kbo_mandates_mixed_html):
         """Dutch: 'Permanent vertegenwoordiger'."""
         parsed = _parse_kbo_page(kbo_mandates_mixed_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Anna", "Smit", "Permanent Vertegenwoordiger") in names_funcs
+        assert ("Anna", "Smit", "Permanent Representative") in names_funcs
 
     def test_mixed_représentant_permanent(self, kbo_mandates_mixed_html):
         """French: 'Représentant permanent'."""
         parsed = _parse_kbo_page(kbo_mandates_mixed_html)
         names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
-        assert ("Marc", "Lefevre", "Représentant Permanent") in names_funcs
+        assert ("Marc", "Lefevre", "Permanent Representative") in names_funcs
 
     def test_no_position_case(self, kbo_no_position_html):
         """Persons exist but no function is available — position should be empty."""
@@ -1065,7 +1095,7 @@ class TestKboMandateExtraction:
         )
         enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
         result = enricher.enrich("BE0412345678")
-        assert result.get("position") == "Administrateur"
+        assert result.get("position") == "Administrator"
 
     def test_enrichment_result_has_directors_with_functions(self, kbo_mandates_fr_html):
         """Directors list in enrichment result carries functions."""
@@ -1077,9 +1107,9 @@ class TestKboMandateExtraction:
         directors = result.get("directors", [])
         assert len(directors) == 3
         funcs = {d.get("function", "") for d in directors}
-        assert "Administrateur" in funcs
-        assert "Gérant" in funcs
-        assert "Président" in funcs
+        assert "Administrator" in funcs
+        assert "Manager" in funcs
+        assert "President" in funcs
 
     def test_no_position_enrichment_result(self, kbo_no_position_html):
         """When no position is available, position is empty in the result."""
@@ -1163,3 +1193,194 @@ class TestNoLiveNetwork:
         for call in session.calls:
             assert "kbopub.economie.fgov.be" in call["url"]
             assert isinstance(session, _FakeSession)
+
+
+# ── KBO table-based function extraction ────────────────────────────
+
+
+class TestKboTableParsing:
+    """Test table-based KBO function/position extraction."""
+
+    def test_nl_table_directors_extracted(self, kbo_table_nl_html):
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        assert len(parsed.directors) == 3
+
+    def test_nl_table_bestuurder(self, kbo_table_nl_html):
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Pieter", "Jansen", "Administrator") in names_funcs
+
+    def test_nl_table_zaakvoerder(self, kbo_table_nl_html):
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Jan", "De Vries", "Manager") in names_funcs
+
+    def test_nl_table_voorzitter(self, kbo_table_nl_html):
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Maria", "Peeters", "President") in names_funcs
+
+    def test_fr_table_directors_extracted(self, kbo_table_fr_html):
+        parsed = _parse_kbo_page(kbo_table_fr_html)
+        assert len(parsed.directors) == 3
+
+    def test_fr_table_administrateur(self, kbo_table_fr_html):
+        parsed = _parse_kbo_page(kbo_table_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Jean", "Dupont", "Administrator") in names_funcs
+
+    def test_fr_table_gerant(self, kbo_table_fr_html):
+        parsed = _parse_kbo_page(kbo_table_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Marie", "Curie", "Manager") in names_funcs
+
+    def test_fr_table_president(self, kbo_table_fr_html):
+        parsed = _parse_kbo_page(kbo_table_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Pierre", "Martin", "President") in names_funcs
+
+    def test_founder_natural_person_function(self, kbo_table_founder_html):
+        """Long natural-person function is normalized to 'Founder'."""
+        parsed = _parse_kbo_page(kbo_table_founder_html)
+        assert len(parsed.directors) == 1
+        d = parsed.directors[0]
+        assert d["first_name"] == "Henri"
+        assert d["last_name"] == "Gisquet"
+        assert d["function"] == "Founder"
+
+    def test_founder_via_enrichment_result(self, kbo_table_founder_html):
+        """Founder position appears in the enrichment result."""
+        session = _FakeSession(
+            script=[_FakeResponse(text=kbo_table_founder_html, status_code=200)]
+        )
+        enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
+        result = enricher.enrich("BE0101261417")
+        assert result["first_name"] == "Henri"
+        assert result["last_name"] == "Gisquet"
+        assert result["position"] == "Founder"
+
+    def test_table_directors_count(self, kbo_table_nl_html):
+        """All 3 Dutch table mandate holders are extracted."""
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        assert len(parsed.directors) == 3
+
+    def test_fr_table_directors_count(self, kbo_table_fr_html):
+        """All 3 French table mandate holders are extracted."""
+        parsed = _parse_kbo_page(kbo_table_fr_html)
+        assert len(parsed.directors) == 3
+
+
+class TestKboPhoneExtraction:
+    """Test phone extraction with TVA rejection."""
+
+    def test_phone_not_tva(self, kbo_phone_tva_html):
+        """Phone number that looks like a TVA is rejected."""
+        parsed = _parse_kbo_page(kbo_phone_tva_html)
+        # The phone "0412345678" is 10 digits starting with 0 —
+        # it should be rejected as a TVA-like number.
+        assert parsed.phone == ""
+
+    def test_phone_with_plus32_accepted(self, kbo_html):
+        """Phone with +32 prefix is accepted."""
+        parsed = _parse_kbo_page(kbo_html)
+        assert parsed.phone  # +32 2 123 45 67
+
+    def test_tva_not_copied_to_phone_in_enrichment(self, kbo_phone_tva_html):
+        """TVA digits should not appear in the phone field of enrichment result."""
+        session = _FakeSession(
+            script=[_FakeResponse(text=kbo_phone_tva_html, status_code=200)]
+        )
+        enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
+        result = enricher.enrich("BE0412345678")
+        # If phone is extracted, it must not be the TVA digits.
+        if result.get("phone"):
+            assert result["phone"] != "0412345678"
+
+
+class TestKboWebsiteExtraction:
+    """Test website extraction with generic link filtering."""
+
+    def test_generic_kbo_link_ignored(self, kbo_generic_links_html):
+        """KBO internal links are not returned as website."""
+        parsed = _parse_kbo_page(kbo_generic_links_html)
+        assert parsed.website == "" or "genericlinks" in parsed.website
+
+    def test_no_website_geen_gegevens(self, kbo_no_website_html):
+        """'Geen gegevens opgenomen in KBO' results in empty website."""
+        parsed = _parse_kbo_page(kbo_no_website_html)
+        assert parsed.website == ""
+
+    def test_real_website_accepted(self, kbo_table_nl_html):
+        """Real company website is accepted."""
+        parsed = _parse_kbo_page(kbo_table_nl_html)
+        assert "boulangerie-test" in parsed.website
+
+    def test_belgium_be_ignored(self):
+        """belgium.be links are ignored."""
+        from reswip_leads.enrichment.kbo_web import _is_generic_url
+        assert _is_generic_url("https://www.belgium.be/nl")
+        assert _is_generic_url("https://economie.fgov.be/nl")
+        assert _is_generic_url("https://kbopub.economie.fgov.be/test")
+        assert _is_generic_url("https://ehealth.fgov.be/nl")
+
+    def test_real_company_url_not_generic(self):
+        """Real company URLs are not filtered."""
+        from reswip_leads.enrichment.kbo_web import _is_generic_url
+        assert not _is_generic_url("https://www.mycompany.be")
+        assert not _is_generic_url("https://example.com")
+
+
+class TestKboMandateNormalization:
+    """Test function normalization for various mandate types."""
+
+    def test_administrateur_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Administrateur") == "Administrator"
+
+    def test_gerant_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Gérant") == "Manager"
+
+    def test_directeur_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Directeur") == "Director"
+
+    def test_president_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Président") == "President"
+
+    def test_administrateur_delegue_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Administrateur délégué") == "Managing Director"
+
+    def test_zaakvoerder_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Zaakvoerder") == "Manager"
+
+    def test_voorzitter_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Voorzitter") == "President"
+
+    def test_gedelegeerd_bestuurder_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Gedelegeerd bestuurder") == "Managing Director"
+
+    def test_bestuurder_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Bestuurder") == "Administrator"
+
+    def test_permanent_representative_fr_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Représentant permanent") == "Permanent Representative"
+
+    def test_permanent_representative_nl_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Permanent vertegenwoordiger") == "Permanent Representative"
+
+    def test_founder_natural_person_normalized(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("Oprichter van een geregistreerde entiteit-natuurlijk persoon") == "Founder"
+
+    def test_empty_function_unchanged(self):
+        from reswip_leads.enrichment.kbo_web import _normalize_function
+        assert _normalize_function("") == ""
