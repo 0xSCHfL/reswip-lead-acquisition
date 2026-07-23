@@ -378,6 +378,7 @@ class LeadPipeline:
         kbo_verifier: Optional[Any] = None,
         pappers: Optional[Any] = None,
         kbo_web: Optional[Any] = None,
+        email_recheck: Optional[Any] = None,
         importer: Optional[IQualifImporter] = None,
         progress: Optional[Callable[[str, int, int], None]] = None,
     ) -> None:
@@ -397,6 +398,7 @@ class LeadPipeline:
         self.kbo_verifier = kbo_verifier
         self.pappers = pappers
         self.kbo_web = kbo_web
+        self.email_recheck = email_recheck
 
         self.progress = progress
         self._stages: List[PipelineStageMetrics] = []
@@ -544,9 +546,11 @@ class LeadPipeline:
         )
         pappers_enriched = 0
         kbo_enriched = 0
+        email_recheck_enriched = 0
         no_match = 0
         first_names_found = 0
         last_names_found = 0
+        emails_found = 0
         for lead in leads:
             if not lead.tva:
                 continue
@@ -567,12 +571,33 @@ class LeadPipeline:
                         f"enrich failed for {lead.tva} via "
                         f"{type(enricher).__name__}: {exc}"
                     )
+            # Email recheck: only for leads still missing email
+            if self.email_recheck is not None and not lead.email:
+                try:
+                    self.email_recheck.set_lead_context(lead)
+                    email_result = self.email_recheck.enrich(
+                        lead.tva, lead.company_name
+                    )
+                    if (
+                        isinstance(email_result, dict)
+                        and email_result.get("status") == "enriched"
+                    ):
+                        email_value = email_result.get("email", "")
+                        if email_value and self._fill_if_empty(lead, "email", email_value):
+                            email_recheck_enriched += 1
+                            lead_enriched = True
+                except Exception as exc:  # noqa: BLE001
+                    metrics.errors.append(
+                        f"email recheck failed for {lead.tva}: {exc}"
+                    )
             if not lead_enriched and lead.tva:
                 no_match += 1
             if lead.first_name:
                 first_names_found += 1
             if lead.last_name:
                 last_names_found += 1
+            if lead.email:
+                emails_found += 1
 
         total_enriched = pappers_enriched + kbo_enriched
         metrics.notes.update(
@@ -580,9 +605,11 @@ class LeadPipeline:
                 "enriched_count": total_enriched,
                 "pappers_enriched": pappers_enriched,
                 "kbo_enriched": kbo_enriched,
+                "email_recheck_enriched": email_recheck_enriched,
                 "no_match": no_match,
                 "first_names_found": first_names_found,
                 "last_names_found": last_names_found,
+                "emails_found": emails_found,
                 "errors_count": len(metrics.errors),
             }
         )
@@ -742,10 +769,17 @@ def _build_enrichers(
 ) -> Dict[str, Any]:
     """Instantiate enricher objects based on the ``--enricher`` flag.
 
-    Returns a dict with ``pappers`` and/or ``kbo_web`` keys suitable
-    for passing as ``**kwargs`` to :class:`LeadPipeline`.
+    Returns a dict with ``pappers``, ``kbo_web``, and/or
+    ``email_recheck`` keys suitable for passing as ``**kwargs`` to
+    :class:`LeadPipeline`.
     """
     from reswip_leads.enrichment.base import EnrichmentConfig
+    from reswip_leads.enrichment.email_recheck import EmailRecheckEnricher
+    from reswip_leads.enrichment.email_sources import (
+        KboEmailSource,
+        PappersEmailSource,
+        WebsiteEmailSource,
+    )
     from reswip_leads.enrichment.kbo_web import KboWebEnricher
     from reswip_leads.enrichment.pappers import PappersEnricher
 
@@ -757,6 +791,13 @@ def _build_enrichers(
         result["pappers"] = PappersEnricher(config=config)
     if choice in ("kbo-web", "kbo_web", "kboweb", "both"):
         result["kbo_web"] = KboWebEnricher(config=config)
+    if choice in ("email", "both"):
+        sources = [
+            PappersEmailSource(config=config),
+            KboEmailSource(config=config),
+            WebsiteEmailSource(),
+        ]
+        result["email_recheck"] = EmailRecheckEnricher(sources=sources)
 
     return result
 
@@ -832,9 +873,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--enricher",
-        choices=["pappers", "kbo-web", "both", "none"],
+        choices=["pappers", "kbo-web", "both", "email", "none"],
         default="both",
-        help="Enrichment adapter(s) to use (default: both).",
+        help="Enrichment adapter(s) to use (default: both). Use 'email' for email recheck only.",
     )
     parser.add_argument(
         "--proxy-file",
