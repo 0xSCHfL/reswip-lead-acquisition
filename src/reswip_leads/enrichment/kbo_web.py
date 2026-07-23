@@ -209,28 +209,32 @@ def _extract_address(soup: Any) -> tuple:
 def _extract_directors(soup: Any) -> List[Dict[str, str]]:
     """Extract directors as a list of ``{first_name, last_name, function}``.
 
-    The KBO page lists directors in a definition list keyed by
-    "Bestuurder / Administrateur" or in a "Mandatarissen" section.
+    The KBO page lists mandate holders in a ``<dl>`` definition list.
+    The ``<dt>`` label may contain the role/function (e.g. "Gérant",
+    "Bestuurder", "Administrateur délégué") and the ``<dd>`` contains
+    the person's name, optionally followed by a comma and the function.
+
+    This function recognises French and Dutch mandate labels and
+    extracts the function from the ``<dt>`` label when it is not
+    present in the ``<dd>`` text.
     """
     directors: List[Dict[str, str]] = []
     seen: set = set()
 
     for dt in soup.find_all("dt"):
         label = dt.get_text(strip=True).lower()
-        if not (
-            "bestuurder" in label
-            or "administrateur" in label
-            or "mandatari" in label
-            or "fonction" in label
-        ):
+        if not _is_mandate_label(label):
             continue
         dd = dt.find_next("dd")
         if dd is None:
             continue
         text = " ".join(dd.get_text().split())
-        parsed_name, parsed_function = _split_director_text(text)
+        dt_function = _function_from_label(label)
+        parsed_name, dd_function = _split_director_text(text)
         if not parsed_name:
             continue
+        # Prefer the function from dd text (more specific), fall back to dt label.
+        function = dd_function or dt_function
         key = " ".join(parsed_name).lower()
         if key in seen:
             continue
@@ -239,11 +243,62 @@ def _extract_directors(soup: Any) -> List[Dict[str, str]]:
             {
                 "first_name": parsed_name[0],
                 "last_name": " ".join(parsed_name[1:]).strip(),
-                "function": parsed_function,
+                "function": function,
             }
         )
 
     return directors
+
+
+# ── Mandate label recognition ──────────────────────────────────────
+
+# Known KBO mandate/function labels (FR + NL).  The check is
+# case-insensitive; the values here are lowercase.  Keep this list
+# sector-neutral — no broker/FSMA/insurance terms.
+_MANDATE_LABELS: tuple = (
+    # French
+    "administrateur",
+    "administrateur délégué",
+    "gérant",
+    "directeur",
+    "président",
+    "représentant permanent",
+    "mandataris",
+    # Dutch
+    "bestuurder",
+    "zaakvoerder",
+    "gedelegeerd bestuurder",
+    "voorzitter",
+    "permanent vertegenwoordiger",
+    # Generic fallbacks
+    "fonction",
+    "mandaat",
+)
+
+
+def _is_mandate_label(label: str) -> bool:
+    """Return True if *label* looks like a KBO mandate/function ``<dt>``."""
+    low = label.lower().strip()
+    return any(mandate in low for mandate in _MANDATE_LABELS)
+
+
+def _function_from_label(label: str) -> str:
+    """Extract the function name from a ``<dt>`` label.
+
+    For compound labels like ``"Administrateur délégué"`` the full
+    label is returned.  For generic labels like ``"Bestuurder"`` or
+    ``"Mandataris"`` the label itself is the function.  Returns an
+    empty string for truly generic labels that carry no role
+    information (``"fonction"``, ``"mandaat"``).
+    """
+    low = label.lower().strip()
+    # Labels that are themselves the function name.
+    _GENERIC = {"fonction", "mandaat", "mandataris"}
+    # Check compound (longer) labels first so substrings don't match early.
+    for mandate in sorted(_MANDATE_LABELS, key=len, reverse=True):
+        if mandate in low and mandate not in _GENERIC:
+            return mandate.title()
+    return ""
 
 
 def _split_director_text(text: str) -> tuple:

@@ -95,6 +95,26 @@ def kbo_search_html() -> str:
     return (FIXTURES / "kbo_search_page.html").read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="module")
+def kbo_mandates_fr_html() -> str:
+    return (FIXTURES / "kbo_page_mandates_fr.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_mandates_nl_html() -> str:
+    return (FIXTURES / "kbo_page_mandates_nl.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_mandates_mixed_html() -> str:
+    return (FIXTURES / "kbo_page_mandates_mixed.html").read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def kbo_no_position_html() -> str:
+    return (FIXTURES / "kbo_page_no_position.html").read_text(encoding="utf-8")
+
+
 # ── Fake HTTP session ──────────────────────────────────────────────
 
 
@@ -934,6 +954,142 @@ class TestKboMalformedResponse:
         result = enricher.enrich("BE0123456789")
         # The adapter handles any HTML shape without raising.
         assert result["status"] in ("no_match", "error", "enriched")
+
+
+# ── KBO mandate / position extraction ──────────────────────────────
+
+
+class TestKboMandateExtraction:
+    """Test French and Dutch mandate label recognition."""
+
+    def test_fr_administrateur(self, kbo_mandates_fr_html):
+        parsed = _parse_kbo_page(kbo_mandates_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Jean", "Dupont", "Administrateur") in names_funcs
+
+    def test_fr_gerant(self, kbo_mandates_fr_html):
+        parsed = _parse_kbo_page(kbo_mandates_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Marie", "Curie", "Gérant") in names_funcs
+
+    def test_fr_president(self, kbo_mandates_fr_html):
+        parsed = _parse_kbo_page(kbo_mandates_fr_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Pierre", "Martin", "Président") in names_funcs
+
+    def test_nl_bestuurder(self, kbo_mandates_nl_html):
+        parsed = _parse_kbo_page(kbo_mandates_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Pieter", "Jansen", "Bestuurder") in names_funcs
+
+    def test_nl_zaakvoerder(self, kbo_mandates_nl_html):
+        parsed = _parse_kbo_page(kbo_mandates_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Jan", "De Vries", "Zaakvoerder") in names_funcs
+
+    def test_nl_voorzitter(self, kbo_mandates_nl_html):
+        parsed = _parse_kbo_page(kbo_mandates_nl_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Maria", "Peeters", "Voorzitter") in names_funcs
+
+    def test_mixed_administrateur_delegue(self, kbo_mandates_mixed_html):
+        """Function in dt label: 'Administrateur délégué'."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Sophie", "Lambert", "Administrateur Délégué") in names_funcs
+
+    def test_mixed_function_in_dd_comma(self, kbo_mandates_mixed_html):
+        """Function after comma in dd text: 'Thomas Bernier, Gérant'."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Thomas", "Bernier", "Gérant") in names_funcs
+
+    def test_mixed_no_function(self, kbo_mandates_mixed_html):
+        """Person listed as Mandataris with no function — function should be empty."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        # Claire Dubois has no function — she should still appear but with empty function.
+        assert ("Claire", "Dubois", "") in names_funcs
+
+    def test_mixed_gedelegeerd_bestuurder(self, kbo_mandates_mixed_html):
+        """Dutch compound: 'Gedelegeerd bestuurder'."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Lucas", "Vermeer", "Gedelegeerd Bestuurder") in names_funcs
+
+    def test_mixed_permanent_vertegenwoordiger(self, kbo_mandates_mixed_html):
+        """Dutch: 'Permanent vertegenwoordiger'."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Anna", "Smit", "Permanent Vertegenwoordiger") in names_funcs
+
+    def test_mixed_représentant_permanent(self, kbo_mandates_mixed_html):
+        """French: 'Représentant permanent'."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        names_funcs = {(d["first_name"], d["last_name"], d["function"]) for d in parsed.directors}
+        assert ("Marc", "Lefevre", "Représentant Permanent") in names_funcs
+
+    def test_no_position_case(self, kbo_no_position_html):
+        """Persons exist but no function is available — position should be empty."""
+        parsed = _parse_kbo_page(kbo_no_position_html)
+        assert len(parsed.directors) == 2
+        for d in parsed.directors:
+            assert d["function"] == ""
+
+    def test_no_position_names_still_extracted(self, kbo_no_position_html):
+        """Even without positions, first and last names are extracted."""
+        parsed = _parse_kbo_page(kbo_no_position_html)
+        names = [(d["first_name"], d["last_name"]) for d in parsed.directors]
+        assert ("Jan", "Willem") in names
+        assert ("Pieter", "Claes") in names
+
+    def test_mixed_directors_count(self, kbo_mandates_mixed_html):
+        """All 6 mandate holders in the mixed fixture are extracted."""
+        parsed = _parse_kbo_page(kbo_mandates_mixed_html)
+        assert len(parsed.directors) == 6
+
+    def test_fr_directors_count(self, kbo_mandates_fr_html):
+        """All 3 French mandate holders are extracted."""
+        parsed = _parse_kbo_page(kbo_mandates_fr_html)
+        assert len(parsed.directors) == 3
+
+    def test_nl_directors_count(self, kbo_mandates_nl_html):
+        """All 3 Dutch mandate holders are extracted."""
+        parsed = _parse_kbo_page(kbo_mandates_nl_html)
+        assert len(parsed.directors) == 3
+
+    def test_position_appears_in_enrichment_result(self, kbo_mandates_fr_html):
+        """Position is included in the enrichment result when present."""
+        session = _FakeSession(
+            script=[_FakeResponse(text=kbo_mandates_fr_html, status_code=200)]
+        )
+        enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
+        result = enricher.enrich("BE0412345678")
+        assert result.get("position") == "Administrateur"
+
+    def test_enrichment_result_has_directors_with_functions(self, kbo_mandates_fr_html):
+        """Directors list in enrichment result carries functions."""
+        session = _FakeSession(
+            script=[_FakeResponse(text=kbo_mandates_fr_html, status_code=200)]
+        )
+        enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
+        result = enricher.enrich("BE0412345678")
+        directors = result.get("directors", [])
+        assert len(directors) == 3
+        funcs = {d.get("function", "") for d in directors}
+        assert "Administrateur" in funcs
+        assert "Gérant" in funcs
+        assert "Président" in funcs
+
+    def test_no_position_enrichment_result(self, kbo_no_position_html):
+        """When no position is available, position is empty in the result."""
+        session = _FakeSession(
+            script=[_FakeResponse(text=kbo_no_position_html, status_code=200)]
+        )
+        enricher = KboWebEnricher(session=session, config=EnrichmentConfig(delay=0))
+        result = enricher.enrich("BE0700111222")
+        # First director has no function, so position should be empty.
+        assert result.get("position", "") == ""
 
 
 # ── Sector neutrality ─────────────────────────────────────────────
