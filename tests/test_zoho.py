@@ -18,7 +18,7 @@ from reswip_leads.exports.zoho import (
 
 class TestZohoColumnOrder:
     def test_column_count(self):
-        assert len(ZOHO_COLUMNS) == 21
+        assert len(ZOHO_COLUMNS) == 22
 
     def test_expected_columns(self):
         expected = [
@@ -43,6 +43,7 @@ class TestZohoColumnOrder:
             "Category",
             "Organization",
             "Lead Source",
+            "KBO Status",
         ]
         assert ZOHO_COLUMNS == expected
 
@@ -528,3 +529,29 @@ class TestEnergyProfileDefaults:
             row = next(reader)
         assert row["Organization"] == ""
         assert row["Lead Source"] == ""
+
+
+class TestActiveKboExport:
+    def test_generic_export_keeps_only_active_when_status_is_present(self, tmp_path):
+        leads = [
+            Lead(company_name="Active", tva="0123456789", kbo_status="AC"),
+            Lead(company_name="Stopped", tva="0415678901", kbo_status="STOPPED"),
+            Lead(company_name="Unknown", tva="0487654321", kbo_status=""),
+        ]
+        out = tmp_path / "out.csv"
+        export_csv(leads, str(out))
+        with open(out, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert [row["Business Name"] for row in rows] == ["Active"]
+        assert rows[0]["KBO Status"] == "AC"
+
+    def test_energy_export_keeps_only_active_when_status_is_present(self, tmp_path):
+        leads = [
+            Lead(company_name="Active", tva="0123456789", kbo_status="Actif"),
+            Lead(company_name="Inactive", tva="0415678901", kbo_status="INACTIVE"),
+        ]
+        out = tmp_path / "out.csv"
+        export_energy_csv(leads, str(out))
+        with open(out, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f, delimiter=";"))
+        assert [row["Business Name"] for row in rows] == ["Active"]

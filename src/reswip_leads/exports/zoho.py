@@ -41,7 +41,24 @@ ZOHO_COLUMNS = [
     "Category",
     "Organization",
     "Lead Source",
+    "KBO Status",
 ]
+
+
+def _is_active_kbo_status(value: str) -> bool:
+    """Return whether a KBO status represents an active company."""
+    return (value or "").strip().casefold() in {"ac", "active", "actif", "actief"}
+
+
+def _filter_active_if_verified(leads: List[Lead]) -> List[Lead]:
+    """Filter inactive leads once KBO status data is present.
+
+    Legacy exports without KBO verification remain unchanged. When any lead
+    has a KBO status, only explicitly active leads are CRM-exportable.
+    """
+    if not any((lead.kbo_status or "").strip() for lead in leads):
+        return list(leads)
+    return [lead for lead in leads if _is_active_kbo_status(lead.kbo_status)]
 
 
 def _generic_lead_to_row(lead: Lead, profile: Optional[Profile] = None) -> dict[str, str]:
@@ -74,6 +91,7 @@ def _generic_lead_to_row(lead: Lead, profile: Optional[Profile] = None) -> dict[
         "Category": lead.category or "",
         "Organization": org,
         "Lead Source": source,
+        "KBO Status": lead.kbo_status or "",
     }
 
 
@@ -200,6 +218,7 @@ def export_energy_csv(
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    leads = _filter_active_if_verified(leads)
     metrics = EnergyExportMetrics()
     metrics.total_rows = len(leads)
 
@@ -232,6 +251,7 @@ def export_csv(
     Returns:
         The output path as a string.
     """
+    leads = _filter_active_if_verified(leads)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -261,6 +281,7 @@ def export_xlsx(
     Returns:
         The output path as a string.
     """
+    leads = _filter_active_if_verified(leads)
     try:
         import openpyxl
     except ImportError:

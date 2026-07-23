@@ -57,6 +57,7 @@ class KboVerifier:
         status = "verified" if record.status in ("AC", "active", "") else "inactive"
         return {
             "status": status,
+            "kbo_status": record.status,
             "enterprise_number": enterprise,
             "company_name": record.denomination,
             "address": record.address,
@@ -97,6 +98,7 @@ class KboVerifier:
                 status = "verified" if record.status in ("AC", "active", "") else "inactive"
                 results[tva] = {
                     "status": status,
+                    "kbo_status": record.status,
                     "enterprise_number": enterprise,
                     "company_name": record.denomination,
                     "address": record.address,

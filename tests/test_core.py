@@ -137,10 +137,18 @@ class TestLeadModel:
         d = lead.to_dict()
         assert d["Category"] == "Insurance"
 
+    def test_to_dict_includes_kbo_status(self):
+        lead = Lead(company_name="Acme", tva="0123456789", kbo_status="AC")
+        assert lead.to_dict()["KBO Status"] == "AC"
+
     def test_from_dict_includes_category(self):
         d = {"Company Name": "Acme", "VAT Number": "0123456789", "Category": "Health"}
         lead = Lead.from_dict(d)
         assert lead.category == "Health"
+
+    def test_from_dict_includes_kbo_status(self):
+        lead = Lead.from_dict({"Company Name": "Acme", "KBO Status": "INACTIVE"})
+        assert lead.kbo_status == "INACTIVE"
 
 
 # ── Belgian Fields ─────────────────────────────────────────────────

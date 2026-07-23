@@ -121,6 +121,7 @@ class TestKboVerifierWithZip:
         verifier = KboVerifier(zip_path=zip_path)
         result = verifier.verify("BE0412345678")
         assert result["status"] == "verified"
+        assert result["kbo_status"] == "AC"
         assert result["company_name"] == "Acme Corp"
         assert result["zipcode"] == "1000"
         assert result["municipality"] == "Bruxelles"
@@ -148,6 +149,7 @@ class TestKboVerifierWithZip:
         verifier = KboVerifier(zip_path=zip_path)
         result = verifier.verify("BE0412345678")
         assert result["status"] == "inactive"
+        assert result["kbo_status"] == "INACTIVE"
         assert result["is_active"] is False
 
     def test_verify_no_zip_returns_not_found(self):

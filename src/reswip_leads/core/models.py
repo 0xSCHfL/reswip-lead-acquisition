@@ -63,6 +63,7 @@ class Lead:
     source: str = ""
     nace_codes: str = ""
     status: str = ""
+    kbo_status: str = ""
 
     def __post_init__(self) -> None:
         if not self.company_name or not self.company_name.strip():
@@ -94,6 +95,7 @@ class Lead:
         "source": "Source",
         "nace_codes": "NACE Codes",
         "status": "Status",
+        "kbo_status": "KBO Status",
     }
 
     def to_dict(self) -> Dict[str, str]:

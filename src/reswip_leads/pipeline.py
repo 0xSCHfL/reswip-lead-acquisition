@@ -500,8 +500,10 @@ class LeadPipeline:
                 if record is None and self.kbo_verifier is not None:
                     result = self.kbo_verifier.verify(lead.tva)
                     status = result.get("status", "not_found")
+                    lead.kbo_status = result.get("kbo_status", "") or ""
                 else:
                     status = getattr(record, "status", "") or "verified"
+                    lead.kbo_status = status
                 if status in {"AC", "verified"}:
                     verified += 1
                 elif status in {"inactive", "INACTIVE"}:
