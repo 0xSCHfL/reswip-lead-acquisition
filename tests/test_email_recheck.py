@@ -1,7 +1,13 @@
 """Tests for email recheck sources.
 
 Covers:
+* ``TestEmailCandidate`` — dataclass construction.
+* ``TestIsValidEmail`` — rejection and acceptance rules.
+* ``TestBaseEmailSource`` — ABC interface.
 * ``TestKboZipEmailSource`` — offline KBO ZIP email extraction.
+* ``TestKboEmailSource`` — KBO pub page email extraction.
+* ``TestPappersEmailSource`` — Pappers email extraction.
+* ``TestWebsiteEmailSource`` — website email extraction.
 """
 from __future__ import annotations
 
@@ -13,7 +19,9 @@ import pytest
 from reswip_leads.enrichment.email_sources import (
     BaseEmailSource,
     EmailCandidate,
+    KboEmailSource,
     KboZipEmailSource,
+    PappersEmailSource,
     WebsiteEmailSource,
     _is_valid_email,
 )
@@ -31,6 +39,101 @@ def _make_reader(records: Dict[str, KboRecord]) -> MagicMock:
     reader = MagicMock(spec=KboZipReader)
     reader.build_index.return_value = records
     return reader
+
+
+# ── EmailCandidate ─────────────────────────────────────────────────
+
+
+class TestEmailCandidate:
+    def test_email_candidate_fields(self):
+        candidate = EmailCandidate(
+            email="test@example.be",
+            source="kbo_zip",
+            confidence="High",
+            source_url="https://example.be",
+        )
+        assert candidate.email == "test@example.be"
+        assert candidate.source == "kbo_zip"
+        assert candidate.confidence == "High"
+        assert candidate.source_url == "https://example.be"
+
+    def test_email_candidate_defaults(self):
+        candidate = EmailCandidate(
+            email="test@example.be",
+            source="kbo_zip",
+            confidence="High",
+        )
+        assert candidate.source_url == ""
+
+
+# ── _is_valid_email ────────────────────────────────────────────────
+
+
+class TestIsValidEmail:
+    def test_valid_generic_email(self):
+        assert _is_valid_email("user@example.org") is True
+
+    def test_rejects_noreply(self):
+        assert _is_valid_email("noreply@company.be") is False
+
+    def test_rejects_no_reply(self):
+        assert _is_valid_email("no-reply@company.be") is False
+
+    def test_rejects_donotreply(self):
+        assert _is_valid_email("donotreply@company.be") is False
+
+    def test_rejects_example_com(self):
+        assert _is_valid_email("user@example.com") is False
+
+    def test_rejects_test_com(self):
+        assert _is_valid_email("user@test.com") is False
+
+    def test_rejects_localhost(self):
+        assert _is_valid_email("user@localhost") is False
+
+    def test_rejects_pappers(self):
+        assert _is_valid_email("info@pappers.be") is False
+
+    def test_rejects_kbo_pub(self):
+        assert _is_valid_email("info@kbopub.economie.fgov.be") is False
+
+    def test_rejects_social_media_google(self):
+        assert _is_valid_email("user@google.com") is False
+
+    def test_rejects_social_media_facebook(self):
+        assert _is_valid_email("user@facebook.com") is False
+
+    def test_rejects_social_media_linkedin(self):
+        assert _is_valid_email("user@linkedin.com") is False
+
+    def test_rejects_empty(self):
+        assert _is_valid_email("") is False
+
+    def test_rejects_no_at_sign(self):
+        assert _is_valid_email("usercompany.be") is False
+
+    def test_rejects_too_long(self):
+        assert _is_valid_email("a" * 250 + "@example.org") is False
+
+
+# ── BaseEmailSource ────────────────────────────────────────────────
+
+
+class TestBaseEmailSource:
+    def test_cannot_instantiate_abc(self):
+        with pytest.raises(TypeError):
+            BaseEmailSource()
+
+    def test_find_email_signature(self):
+        import inspect
+
+        sig = inspect.signature(BaseEmailSource.find_email)
+        params = list(sig.parameters.keys())
+        assert "self" in params
+        assert "tva" in params
+        assert "company_name" in params
+        assert "website_url" in params
+        assert "proxy" in params
 
 
 # ── KboZipEmailSource ──────────────────────────────────────────────
@@ -97,6 +200,103 @@ class TestKboZipEmailSource:
         reader.build_index.assert_called_once()
         call_args = reader.build_index.call_args
         assert call_args[0][0] == "/tmp/kbo.zip"
+
+
+# ── KboEmailSource ────────────────────────────────────────────────
+
+
+class TestKboEmailSource:
+    def test_finds_email_from_kbo_page(self):
+        html = '<html><body><a href="mailto:contact@acme.be">Contact</a></body></html>'
+        resp = MagicMock(status_code=200, text=html)
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is not None
+        assert result.email == "contact@acme.be"
+        assert result.source == "kbo"
+        assert result.confidence == "Medium"
+
+    def test_returns_none_when_no_email(self):
+        html = "<html><body>No email here</body></html>"
+        resp = MagicMock(status_code=200, text=html)
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is None
+
+    def test_returns_none_for_no_data_page(self):
+        html = "<html><body>Geen gegevens opgenomen in KBO</body></html>"
+        resp = MagicMock(status_code=200, text=html)
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is None
+
+    def test_handles_network_error(self):
+        session = MagicMock()
+        session.get.side_effect = ConnectionError("no network")
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is None
+
+    def test_handles_non_200_status(self):
+        resp = MagicMock(status_code=404, text="Not Found")
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is None
+
+    def test_medium_confidence(self):
+        html = '<a href="mailto:info@acme.be">Info</a>'
+        resp = MagicMock(status_code=200, text=html)
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is not None
+        assert result.confidence == "Medium"
+
+    def test_source_name_is_kbo(self):
+        html = '<a href="mailto:x@acme.be">X</a>'
+        resp = MagicMock(status_code=200, text=html)
+        session = MagicMock()
+        session.get.return_value = resp
+
+        src = KboEmailSource()
+        src._session = session
+        result = src.find_email(tva="BE0123456789")
+
+        assert result is not None
+        assert result.source == "kbo"
+
+    def test_returns_none_when_tva_missing(self):
+        src = KboEmailSource()
+        result = src.find_email(tva="")
+
+        assert result is None
 
 
 # ── WebsiteEmailSource ────────────────────────────────────────────

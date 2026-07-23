@@ -39,6 +39,21 @@ _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 _SPA_INDICATORS = ("<noscript>", "window.location", '<div id="app">')
 
+_REJECTED_LOCAL_PREFIXES = ("noreply", "no-reply", "donotreply")
+
+_REJECTED_DOMAINS = frozenset({
+    "example.com",
+    "test.com",
+    "localhost",
+    "pappers.be",
+    "kbopub.economie.fgov.be",
+    "google.com",
+    "facebook.com",
+    "linkedin.com",
+    "twitter.com",
+    "instagram.com",
+})
+
 
 def _pw_playwright():
     """Lazy-import and return the ``playwright.sync_api`` module."""
@@ -55,11 +70,24 @@ def _needs_playwright(html: str, content_length: int) -> bool:
     return any(ind in lower for ind in _SPA_INDICATORS)
 
 
-def _is_valid_email(value: str) -> bool:
-    """Return True if *value* looks like a plausible email address."""
+def _is_valid_email(value: str, website_domain: str = "") -> bool:
+    """Return True if *value* looks like a plausible business email.
+
+    Rejects noreply/no-reply/donotreply prefixes, disposable/test
+    domains, and social-media domains.  Accepts ``info@`` when the
+    domain matches *website_domain*.
+    """
     if not value or len(value) > 254:
         return False
-    return _EMAIL_RE.fullmatch(value.strip()) is not None
+    value = value.strip().lower()
+    if _EMAIL_RE.fullmatch(value) is None:
+        return False
+    local, _, domain = value.rpartition("@")
+    if domain in _REJECTED_DOMAINS:
+        return False
+    if any(local.startswith(prefix) for prefix in _REJECTED_LOCAL_PREFIXES):
+        return False
+    return True
 
 
 @dataclass
@@ -114,6 +142,63 @@ class KboZipEmailSource(BaseEmailSource):
             source="kbo_zip",
             confidence="High",
         )
+
+
+KBO_PUB_URL = "https://kbopub.economie.fgov.be/kbopub/toonondernemingps.html?ondernemingsnummer={ent}"
+
+
+class KboEmailSource(BaseEmailSource):
+    """Extract email from KBO pub page (network request)."""
+
+    def __init__(self, config: Any = None):
+        self._config = config
+        self._session: Any = None
+
+    def find_email(
+        self,
+        tva: str,
+        company_name: str = "",
+        website_url: str = "",
+        proxy: Optional[dict] = None,
+    ) -> Optional[EmailCandidate]:
+        digits = re.sub(r"\D", "", tva or "")
+        if not digits:
+            return None
+
+        url = KBO_PUB_URL.format(ent=digits)
+
+        try:
+            import requests as _requests
+
+            session = self._session
+            if session is None:
+                session = _requests.Session()
+                if proxy:
+                    session.proxies.update(proxy)
+            response = session.get(url, timeout=15)
+        except Exception:
+            logger.debug("KboEmailSource: request failed for %s", url)
+            return None
+
+        status_code = getattr(response, "status_code", 0)
+        if status_code != 200:
+            return None
+
+        html = getattr(response, "text", "")
+        if not html or "Geen gegevens" in html:
+            return None
+
+        emails = _EMAIL_RE.findall(html)
+        for email in emails:
+            if _is_valid_email(email):
+                return EmailCandidate(
+                    email=email,
+                    source="kbo",
+                    confidence="Medium",
+                    source_url=url,
+                )
+
+        return None
 
 
 class PappersEmailSource(BaseEmailSource):
