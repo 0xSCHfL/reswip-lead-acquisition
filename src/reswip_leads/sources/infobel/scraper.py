@@ -104,6 +104,39 @@ class InfobelScraper:
             browser.close()
         return records
 
+    def scrape_search(self, search_term: str, location: str) -> List[InfobelRecord]:
+        """Submit Infobel's homepage search form, then scrape its results.
+
+        ``search_term`` can be a category or business name (for example
+        ``Restaurant``), while ``location`` can be a city or postal code.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:  # pragma: no cover
+            raise RuntimeError("Install Playwright with: python3 -m pip install --user playwright") from exc
+        homepage = "https://www.infobel.com/fr/belgium/"
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True, executable_path=self.executable_path, args=["--no-sandbox"]
+            )
+            page = browser.new_page()
+            page.goto(homepage, wait_until="domcontentloaded", timeout=self.timeout_ms)
+            page.wait_for_timeout(3_000)
+            term = page.locator("#search-term-input-header")
+            if not term.count():
+                term = page.locator('input[placeholder*="Qui ? Quoi"]')
+            place = page.locator("#search-location-input-header")
+            if not place.count():
+                place = page.locator('input[placeholder*="Où ?"]')
+            term.last.fill(search_term)
+            place.last.fill(location)
+            place.last.press("Enter")
+            page.wait_for_load_state("domcontentloaded", timeout=self.timeout_ms)
+            page.wait_for_timeout(3_000)
+            result_url = page.url
+            browser.close()
+        return self.scrape(result_url)
+
     def _scrape_detail(self, context, detail_url: str, category_url: str) -> InfobelRecord:
         page = context.new_page()
         try:
@@ -153,10 +186,17 @@ class InfobelScraper:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scrape an Infobel Belgium category page")
-    parser.add_argument("--url", required=True, help="Infobel category URL")
+    parser.add_argument("--url", help="Infobel category URL")
+    parser.add_argument("--search-term", help="Homepage search term, e.g. Restaurant")
+    parser.add_argument("--location", help="Homepage search location, e.g. Aubel or 4880")
     parser.add_argument("--output", required=True, help="Output CSV path")
     args = parser.parse_args()
-    records = InfobelScraper().scrape(args.url)
+    if args.url:
+        records = InfobelScraper().scrape(args.url)
+    elif args.search_term and args.location:
+        records = InfobelScraper().scrape_search(args.search_term, args.location)
+    else:
+        parser.error("provide --url or both --search-term and --location")
     InfobelScraper.write_csv(records, args.output)
     print(f"Scraped {len(records)} Infobel businesses")
     return 0
