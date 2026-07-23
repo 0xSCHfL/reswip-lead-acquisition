@@ -221,10 +221,10 @@ class WebsiteEmailSource(BaseEmailSource):
         return None
 
     def _fetch(self, url: str, proxy: Optional[dict]) -> Optional[str]:
+        if requests is None:
+            return None
         try:
-            import requests as _requests
-
-            session = _requests.Session()
+            session = requests.Session()
             if proxy:
                 session.proxies.update(proxy)
             resp = session.get(url, timeout=15)
@@ -239,8 +239,7 @@ class WebsiteEmailSource(BaseEmailSource):
         self, url: str, proxy: Optional[dict]
     ) -> Optional[str]:
         try:
-            sync_playwright = _pw_playwright()
-            with sync_playwright() as pw:
+            with _pw_playwright() as pw:
                 launch_args: dict = {}
                 if proxy:
                     http_proxy = proxy.get("http") or proxy.get("https")

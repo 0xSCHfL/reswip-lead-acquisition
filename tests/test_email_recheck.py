@@ -150,16 +150,19 @@ class TestWebsiteEmailSource:
         mock_pw_browser.new_context.return_value = mock_pw_context
         mock_pw_browser.__enter__ = MagicMock(return_value=mock_pw_browser)
         mock_pw_browser.__exit__ = MagicMock(return_value=False)
-        mock_pw_playwright = MagicMock()
-        mock_pw_playwright.chromium.launch.return_value = mock_pw_browser
-        mock_pw_playwright.__enter__ = MagicMock(return_value=mock_pw_playwright)
-        mock_pw_playwright.__exit__ = MagicMock(return_value=False)
+
+        # _pw_playwright() returns sync_playwright; sync_playwright() is the CM
+        mock_sync_pw = MagicMock()
+        mock_pw_cm = mock_sync_pw.return_value
+        mock_pw_cm.chromium.launch.return_value = mock_pw_browser
+        mock_pw_cm.__enter__ = MagicMock(return_value=mock_pw_cm)
+        mock_pw_cm.__exit__ = MagicMock(return_value=False)
 
         with (
             patch("reswip_leads.enrichment.email_sources.requests") as mock_req,
             patch(
                 "reswip_leads.enrichment.email_sources._pw_playwright",
-                mock_pw_playwright,
+                mock_sync_pw,
             ),
         ):
             mock_sess = MagicMock()
