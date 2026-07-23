@@ -53,10 +53,12 @@ class Lead:
     email: Optional[str] = None
     phone: Optional[str] = None
     mobile: Optional[str] = None
+    fax: Optional[str] = None
     website: Optional[str] = None
 
     # Metadata
     category: str = ""
+    db_region: str = ""
     source: str = ""
     nace_codes: str = ""
     status: str = ""
@@ -85,6 +87,7 @@ class Lead:
         "email": "Email Address",
         "phone": "Office Phone",
         "mobile": "Mobile Phone",
+        "fax": "Fax",
         "website": "Website",
         "category": "Category",
         "source": "Source",
