@@ -11,6 +11,7 @@ Covers:
 """
 from __future__ import annotations
 
+import csv
 from typing import Dict, Optional, Set
 from unittest.mock import MagicMock, patch
 
@@ -25,7 +26,7 @@ from reswip_leads.enrichment.email_sources import (
     WebsiteEmailSource,
     _is_valid_email,
 )
-from reswip_leads.enrichment.email_recheck import EmailRecheckEnricher
+from reswip_leads.enrichment.email_recheck import EmailRecheckEnricher, _process_csv, _build_sources
 from reswip_leads.verification.kbo.zip_reader import KboRecord, KboZipReader
 
 
@@ -709,3 +710,97 @@ class TestEmailRecheckEnricher:
         result = enricher.enrich(tva="BE0123456789")
 
         assert result["status"] == "no_match"
+
+
+# ── Standalone CLI / Report ───────────────────────────────────────
+
+
+class TestStandaloneCLI:
+    def test_process_csv_missing_only(self, tmp_path):
+        input_csv = tmp_path / "input.csv"
+        output_csv = tmp_path / "output.csv"
+        input_csv.write_text(
+            "TVA,Company Name,Email\n"
+            "BE0123456789,Acme SA,\n"
+            "BE9876543210,Other NV,user@example.be\n"
+        )
+
+        source = MagicMock(spec=BaseEmailSource)
+        source.find_email.return_value = EmailCandidate(
+            email="found@acme.be", source="kbo", confidence="Medium"
+        )
+
+        stats = _process_csv(
+            str(input_csv), str(output_csv), [source], missing_only=True
+        )
+
+        assert stats["processed"] == 1
+        assert stats["found"] == 1
+        assert output_csv.exists()
+
+    def test_process_csv_includes_existing(self, tmp_path):
+        input_csv = tmp_path / "input.csv"
+        output_csv = tmp_path / "output.csv"
+        input_csv.write_text(
+            "TVA,Company Name,Email\n"
+            "BE0123456789,Acme SA,user@example.be\n"
+        )
+
+        source = MagicMock(spec=BaseEmailSource)
+        source.find_email.return_value = None
+
+        stats = _process_csv(
+            str(input_csv), str(output_csv), [source], missing_only=False
+        )
+
+        assert stats["processed"] == 1
+
+    def test_process_csv_output_has_email_columns(self, tmp_path):
+        input_csv = tmp_path / "input.csv"
+        output_csv = tmp_path / "output.csv"
+        input_csv.write_text(
+            "TVA,Company Name,Email\n"
+            "BE0123456789,Acme SA,\n"
+        )
+
+        source = MagicMock(spec=BaseEmailSource)
+        source.find_email.return_value = EmailCandidate(
+            email="info@acme.be", source="kbo", confidence="Medium"
+        )
+
+        _process_csv(str(input_csv), str(output_csv), [source], missing_only=True)
+
+        with open(output_csv, "r") as fh:
+            reader = csv.DictReader(fh)
+            row = next(reader)
+            assert row["Email"] == "info@acme.be"
+            assert row["Email Source"] == "kbo"
+            assert row["Email Confidence"] == "Medium"
+
+    def test_process_csv_empty_input(self, tmp_path):
+        input_csv = tmp_path / "input.csv"
+        output_csv = tmp_path / "output.csv"
+        input_csv.write_text("TVA,Company Name,Email\n")
+
+        stats = _process_csv(
+            str(input_csv), str(output_csv), [], missing_only=True
+        )
+
+        assert stats["total"] == 0
+        assert stats["processed"] == 0
+
+    def test_build_sources_all(self):
+        from reswip_leads.enrichment.base import EnrichmentConfig
+
+        config = EnrichmentConfig()
+        sources = _build_sources("all", config)
+        assert len(sources) == 3
+
+    def test_build_sources_kbo_only(self):
+        from reswip_leads.enrichment.base import EnrichmentConfig
+        from reswip_leads.enrichment.email_sources import KboEmailSource
+
+        config = EnrichmentConfig()
+        sources = _build_sources("kbo", config)
+        assert len(sources) == 1
+        assert isinstance(sources[0], KboEmailSource)
