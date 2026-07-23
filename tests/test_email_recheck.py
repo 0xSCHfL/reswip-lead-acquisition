@@ -14,6 +14,7 @@ from reswip_leads.enrichment.email_sources import (
     BaseEmailSource,
     EmailCandidate,
     KboZipEmailSource,
+    WebsiteEmailSource,
     _is_valid_email,
 )
 from reswip_leads.verification.kbo.zip_reader import KboRecord, KboZipReader
@@ -307,12 +308,12 @@ class TestPappersEmailSource:
     def test_decodes_cloudflare_email(self):
         from reswip_leads.enrichment.email_sources import PappersEmailSource
 
-        # Encode "test@acme.be" using CF email protection: key = hex('t') = 74
+        # Encode "test@acme.be" using CF email protection: key = hex('t') = 0x74
         key = 0x74
         raw = "test@acme.be"
-        encoded = hex(key)[2:]
+        encoded = f"{key:02x}"
         for ch in raw:
-            encoded += hex(ord(ch) ^ key)[2:]
+            encoded += f"{ord(ch) ^ key:02x}"
 
         # pappers.py CF_EMAIL_RE matches /cdn-cgi/l/email-protection#<hex>
         html = (
