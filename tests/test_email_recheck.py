@@ -25,6 +25,7 @@ from reswip_leads.enrichment.email_sources import (
     WebsiteEmailSource,
     _is_valid_email,
 )
+from reswip_leads.enrichment.email_recheck import EmailRecheckEnricher
 from reswip_leads.verification.kbo.zip_reader import KboRecord, KboZipReader
 
 
@@ -602,3 +603,109 @@ class TestPappersEmailSource:
 
         assert result is not None
         assert result.source == "pappers"
+
+
+# ── EmailRecheckEnricher ──────────────────────────────────────────
+
+
+class TestEmailRecheckEnricher:
+    def test_priority_chain(self):
+        source1 = MagicMock(spec=BaseEmailSource)
+        source1.find_email.return_value = EmailCandidate(
+            email="first@kbo.be", source="kbo_zip", confidence="High"
+        )
+        source2 = MagicMock(spec=BaseEmailSource)
+        source2.find_email.return_value = EmailCandidate(
+            email="second@pappers.be", source="pappers", confidence="Low"
+        )
+
+        enricher = EmailRecheckEnricher(sources=[source1, source2])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["email"] == "first@kbo.be"
+        source1.find_email.assert_called_once()
+        source2.find_email.assert_not_called()
+
+    def test_stops_at_first_found(self):
+        source1 = MagicMock(spec=BaseEmailSource)
+        source1.find_email.return_value = None
+        source2 = MagicMock(spec=BaseEmailSource)
+        source2.find_email.return_value = EmailCandidate(
+            email="found@pappers.be", source="pappers", confidence="Low"
+        )
+        source3 = MagicMock(spec=BaseEmailSource)
+        source3.find_email.return_value = EmailCandidate(
+            email="also@website.be", source="website", confidence="Low"
+        )
+
+        enricher = EmailRecheckEnricher(sources=[source1, source2, source3])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["email"] == "found@pappers.be"
+        source1.find_email.assert_called_once()
+        source2.find_email.assert_called_once()
+        source3.find_email.assert_not_called()
+
+    def test_returns_no_match_when_all_empty(self):
+        source1 = MagicMock(spec=BaseEmailSource)
+        source1.find_email.return_value = None
+        source2 = MagicMock(spec=BaseEmailSource)
+        source2.find_email.return_value = None
+
+        enricher = EmailRecheckEnricher(sources=[source1, source2])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["status"] == "no_match"
+        assert "email" not in result
+
+    def test_returns_error_on_empty_tva(self):
+        enricher = EmailRecheckEnricher(sources=[])
+        result = enricher.enrich(tva="")
+
+        assert result["status"] == "error"
+
+    def test_set_lead_context(self):
+        class FakeLead:
+            website = "https://acme.be"
+
+        source = MagicMock(spec=BaseEmailSource)
+        source.find_email.return_value = None
+
+        enricher = EmailRecheckEnricher(sources=[source])
+        enricher.set_lead_context(FakeLead())
+        enricher.enrich(tva="BE0123456789")
+
+        call_kwargs = source.find_email.call_args[1]
+        assert call_kwargs["website_url"] == "https://acme.be"
+
+    def test_handles_source_exception(self):
+        source1 = MagicMock(spec=BaseEmailSource)
+        source1.find_email.side_effect = ConnectionError("network down")
+        source2 = MagicMock(spec=BaseEmailSource)
+        source2.find_email.return_value = EmailCandidate(
+            email="fallback@pappers.be", source="pappers", confidence="Low"
+        )
+
+        enricher = EmailRecheckEnricher(sources=[source1, source2])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["email"] == "fallback@pappers.be"
+
+    def test_never_overwrites_existing_email(self):
+        source = MagicMock(spec=BaseEmailSource)
+        source.find_email.return_value = EmailCandidate(
+            email="new@acme.be", source="kbo", confidence="Medium"
+        )
+
+        enricher = EmailRecheckEnricher(sources=[source])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["email"] == "new@acme.be"
+        assert result["status"] == "enriched"
+        assert result["evidence"][0]["field"] == "email"
+
+    def test_empty_sources_returns_no_match(self):
+        enricher = EmailRecheckEnricher(sources=[])
+        result = enricher.enrich(tva="BE0123456789")
+
+        assert result["status"] == "no_match"
