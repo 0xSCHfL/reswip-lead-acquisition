@@ -39,6 +39,20 @@ _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 
 _SPA_INDICATORS = ("<noscript>", "window.location", '<div id="app">')
 
+_CONTACT_PATHS = (
+    "/contact",
+    "/contact-us",
+    "/contactez-nous",
+    "/contacteer-ons",
+    "/nous-contacter",
+    "/kontakt",
+)
+
+_CONTACT_LINK_RE = re.compile(
+    r'href="([^"]*(?:contact|kontakt|nous-contacter|contacteer)[^"]*)"',
+    re.IGNORECASE,
+)
+
 _REJECTED_LOCAL_PREFIXES = ("noreply", "no-reply", "donotreply")
 
 _REJECTED_DOMAINS = frozenset({
@@ -265,6 +279,9 @@ class WebsiteEmailSource(BaseEmailSource):
     Uses ``requests`` first; falls back to Playwright when the raw
     response looks like an SPA (< 500 bytes, <noscript>, window.location,
     or empty ``<div id="app">``).
+
+    Checks the main page first, then common contact page paths
+    (/contact, /contact-us, etc.) and any contact links found on the page.
     """
 
     def find_email(
@@ -277,33 +294,88 @@ class WebsiteEmailSource(BaseEmailSource):
         if not website_url:
             return None
 
-        html = self._fetch(website_url, proxy)
-        if html is None:
-            return None
-
-        if _needs_playwright(html, len(html.encode("utf-8"))):
-            rendered = self._fetch_with_playwright(website_url, proxy)
-            if rendered:
-                html = rendered
-
-        emails = _EMAIL_RE.findall(html)
         website_domain = urlparse(website_url).hostname or ""
+        base_url = website_url.rstrip("/")
 
+        # 1. Check main page
+        html = self._fetch(website_url, proxy)
+        if html:
+            if _needs_playwright(html, len(html.encode("utf-8"))):
+                rendered = self._fetch_with_playwright(website_url, proxy)
+                if rendered:
+                    html = rendered
+            result = self._extract_email(html, website_domain, website_url)
+            if result:
+                return result
+
+            # Find contact links on main page
+            contact_links = self._find_contact_links(html, base_url)
+        else:
+            contact_links = []
+
+        # 2. Try common contact paths
+        for path in _CONTACT_PATHS:
+            contact_url = f"{base_url}{path}"
+            if contact_url in contact_links:
+                continue  # will be tried below
+            contact_links.append(contact_url)
+
+        # 3. Try contact links
+        for contact_url in contact_links[:5]:  # limit to 5 pages
+            html = self._fetch(contact_url, proxy)
+            if html is None:
+                continue
+            if _needs_playwright(html, len(html.encode("utf-8"))):
+                rendered = self._fetch_with_playwright(contact_url, proxy)
+                if rendered:
+                    html = rendered
+            result = self._extract_email(html, website_domain, contact_url)
+            if result:
+                return result
+
+        return None
+
+    def _extract_email(
+        self, html: str, website_domain: str, source_url: str
+    ) -> Optional[EmailCandidate]:
+        """Extract a valid email from HTML content."""
+        emails = _EMAIL_RE.findall(html)
+        # Normalize domain: strip www. prefix for comparison
+        normalized_domain = website_domain.lower()
+        if normalized_domain.startswith("www."):
+            normalized_domain = normalized_domain[4:]
         for email in emails:
             if not _is_valid_email(email):
                 continue
             local, _, domain = email.rpartition("@")
-            if domain.lower() != website_domain.lower():
+            email_domain = domain.lower()
+            if email_domain.startswith("www."):
+                email_domain = email_domain[4:]
+            if email_domain != normalized_domain:
                 continue
             confidence = "Medium" if local.lower() == "info" else "Low"
             return EmailCandidate(
                 email=email,
                 source="website",
                 confidence=confidence,
-                source_url=website_url,
+                source_url=source_url,
             )
-
         return None
+
+    def _find_contact_links(self, html: str, base_url: str) -> list:
+        """Find contact page links in HTML."""
+        links = []
+        seen = set()
+        for match in _CONTACT_LINK_RE.finditer(html):
+            href = match.group(1)
+            if href.startswith("/"):
+                href = base_url + href
+            elif not href.startswith("http"):
+                continue
+            if href not in seen:
+                seen.add(href)
+                links.append(href)
+        return links
 
     def _fetch(self, url: str, proxy: Optional[dict]) -> Optional[str]:
         if requests is None:

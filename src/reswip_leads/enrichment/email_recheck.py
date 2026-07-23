@@ -50,7 +50,7 @@ class EmailRecheckEnricher:
         self._website_url = getattr(lead, "website", "") or ""
 
     def enrich(
-        self, tva: str, company_name: str = ""
+        self, tva: str, company_name: str = "", website_url: str = ""
     ) -> Dict[str, Any]:
         """Try each source in order. Returns a flat dict compatible
         with the pipeline's enrichment contract.
@@ -63,12 +63,14 @@ class EmailRecheckEnricher:
             ).to_dict()
 
         lookup_key = digits_only(tva)
+        # Use provided website_url or fall back to stored context
+        effective_website = website_url or self._website_url
         for source in self._sources:
             try:
                 candidate = source.find_email(
                     tva=tva,
                     company_name=company_name,
-                    website_url=self._website_url,
+                    website_url=effective_website,
                 )
             except Exception as exc:
                 logger.debug(
@@ -195,6 +197,7 @@ def _process_csv(
         tva = row.get("TVA", "").strip()
         company_name = row.get("Company Name", "").strip()
         existing_email = row.get("Email", "").strip()
+        website_url = row.get("Website", "").strip()
 
         if missing_only and existing_email:
             continue
@@ -205,7 +208,7 @@ def _process_csv(
 
         processed += 1
         try:
-            result = enricher.enrich(tva, company_name)
+            result = enricher.enrich(tva, company_name, website_url=website_url)
             if result.get("status") == "enriched":
                 email = result.get("email", "")
                 if email:
