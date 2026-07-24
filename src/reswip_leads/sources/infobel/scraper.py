@@ -270,7 +270,7 @@ class InfobelScraper:
         log.info("launching headless browser for category URL: %s", category_url)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(
-                headless=True, executable_path=self.executable_path, args=["--no-sandbox"]
+                headless=True, executable_path=self.executable_path
             )
             context = browser.new_context(
                 user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
@@ -335,7 +335,6 @@ class InfobelScraper:
                 executable_path=self.executable_path,
                 channel="chromium" if not self.executable_path else None,
                 args=[
-                    "--no-sandbox",
                     "--disable-blink-features=AutomationControlled",
                 ],
             )
