@@ -180,6 +180,12 @@ class TestClassifyProvince:
         assert classify_province("Unknown") == ""
         assert classify_province("") == ""
 
+    def test_composite_walloon_brabant_value(self):
+        value = "Brabant Wallon / Nivelles"
+        assert classify_province(value) == "Brabant wallon"
+        assert classify_region(value) == "Wallonia"
+        assert classify_language(value) == "FR"
+
 
 class TestClassifyRegion:
     def test_wallonia(self):

@@ -60,7 +60,17 @@ def classify_province(raw: str) -> str:
     """Return the canonical province name, or empty string if unknown."""
     if not raw:
         return ""
-    return _CANONICAL_PROVINCE.get(raw.strip().lower(), "")
+    value = raw.strip().lower()
+    exact = _CANONICAL_PROVINCE.get(value)
+    if exact:
+        return exact
+    # Iqualif commonly appends a district/sub-region, e.g.
+    # ``Brabant Wallon / Nivelles`` or ``Liège / Liège-Verviers``.
+    base = value.split("/", 1)[0].strip()
+    for key, canonical in sorted(_CANONICAL_PROVINCE.items(), key=lambda item: len(item[0]), reverse=True):
+        if base == key or base.startswith(key):
+            return canonical
+    return ""
 
 
 def classify_region(province: str) -> str:
