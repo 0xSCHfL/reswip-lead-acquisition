@@ -1334,6 +1334,7 @@ class TestKboWebsiteExtraction:
         assert _is_generic_url("https://economie.fgov.be/nl")
         assert _is_generic_url("https://kbopub.economie.fgov.be/test")
         assert _is_generic_url("https://ehealth.fgov.be/nl")
+        assert _is_generic_url("https://www.ejustice.just.fgov.be/tsv_pdf/example.pdf")
 
     def test_real_company_url_not_generic(self):
         """Real company URLs are not filtered."""

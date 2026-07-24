@@ -95,6 +95,7 @@ _GENERIC_URL_PATTERNS: tuple = (
     "economie.fgov.be",
     "kbopub.economie.fgov.be",
     "ehealth.fgov.be",
+    "ejustice.just.fgov.be",
     "kruispuntbank.be",
     "onderzoeksregister.be",
 )
