@@ -164,11 +164,11 @@ def main():
     conditions = [
         ("Chromium (no stealth)", {
             "channel": "chromium",
-            "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            "args": ["--disable-blink-features=AutomationControlled"],
         }),
         ("Chromium (stealth)", {
             "channel": "chromium",
-            "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            "args": ["--disable-blink-features=AutomationControlled"],
             "stealth": True,
         }),
         ("Firefox", {
