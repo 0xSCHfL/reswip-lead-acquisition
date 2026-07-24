@@ -65,6 +65,8 @@ from reswip_leads.enrichment.kbo_web import (
     KBO_COMPANY_URL,
     KBO_SEARCH_URL,
     KboWebEnricher,
+    _select_director_for_contact,
+    _split_table_name,
     _parse_kbo_page,
 )
 from reswip_leads.enrichment.pappers import _parse_pappers_page
@@ -1120,6 +1122,16 @@ class TestKboMandateExtraction:
         result = enricher.enrich("BE0700111222")
         # First director has no function, so position should be empty.
         assert result.get("position", "") == ""
+
+    def test_select_director_skips_phone_identifier_rows(self):
+        directors = [
+            {"first_name": "0676.661.112", "last_name": "", "function": "Administrator"},
+            {"first_name": "Ilse", "last_name": "Vanhoorebeek", "function": "Permanent Representative"},
+        ]
+        assert _select_director_for_contact(directors) == directors[1]
+
+    def test_table_name_removes_kbo_identifier_suffix(self):
+        assert _split_table_name("Vanhoorebeek, Ilse (0676.661.112)")[0] == ["Ilse", "Vanhoorebeek"]
 
 
 # ── Sector neutrality ─────────────────────────────────────────────

@@ -86,6 +86,7 @@ _FUNCTION_MAP: Dict[str, str] = {
     "voorzitter": "President",
     "gedelegeerd bestuurder": "Managing Director",
     "permanent vertegenwoordiger": "Permanent Representative",
+    "vaste vertegenwoordiger": "Permanent Representative",
 }
 
 # Generic website/navigation URLs to ignore
@@ -264,6 +265,19 @@ def _extract_directors(soup: Any) -> List[Dict[str, str]]:
     return directors
 
 
+def _select_director_for_contact(directors: List[Dict[str, str]]) -> Optional[Dict[str, str]]:
+    """Select a real person row, skipping KBO identifier-only rows."""
+    for director in directors:
+        first = str(director.get("first_name") or "").strip()
+        last = str(director.get("last_name") or "").strip()
+        if not first or not last:
+            continue
+        if re.search(r"\d", first) or re.search(r"\d", last):
+            continue
+        return director
+    return None
+
+
 def _extract_directors_from_tables(soup: Any, seen: set) -> List[Dict[str, str]]:
     """Extract directors from the KBO page structure.
 
@@ -344,7 +358,8 @@ def _split_table_name(text: str) -> tuple:
     """
     if not text:
         return ([], "")
-    text = text.strip()
+    # KBO appends the enterprise number in parentheses to representatives.
+    text = re.sub(r"\s*\(\s*\d[\d.\s-]*\s*\)", "", text).strip()
     # Check if it's "Last, First" format.
     if "," in text:
         parts = [p.strip() for p in text.split(",", 1)]
@@ -809,8 +824,8 @@ class KboWebEnricher(BaseEnricher):
                 )
             )
         if parsed.directors:
-            director = parsed.directors[0]
-            if director.get("first_name") and director.get("last_name"):
+            director = _select_director_for_contact(parsed.directors)
+            if director:
                 fields["first_name"] = director["first_name"]
                 fields["last_name"] = director["last_name"]
                 evidence.append(
