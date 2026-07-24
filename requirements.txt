@@ -1,0 +1,8 @@
+PyYAML
+requests
+beautifulsoup4
+openpyxl
+playwright
+
+# dev / test
+pytest

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reswip-leads"
+version = "0.1.0"
+description = "Belgian B2B lead-acquisition and enrichment platform for Reswip"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML",
+    "requests",
+    "beautifulsoup4",
+    "openpyxl",
+    "playwright",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
