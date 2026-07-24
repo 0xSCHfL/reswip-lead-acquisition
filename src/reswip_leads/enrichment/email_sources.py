@@ -302,7 +302,7 @@ class WebsiteEmailSource(BaseEmailSource):
         if html:
             if _needs_playwright(html, len(html.encode("utf-8"))):
                 rendered = self._fetch_with_playwright(website_url, proxy)
-                if rendered:
+                if isinstance(rendered, str) and rendered:
                     html = rendered
             result = self._extract_email(html, website_domain, website_url)
             if result:
@@ -327,7 +327,7 @@ class WebsiteEmailSource(BaseEmailSource):
                 continue
             if _needs_playwright(html, len(html.encode("utf-8"))):
                 rendered = self._fetch_with_playwright(contact_url, proxy)
-                if rendered:
+                if isinstance(rendered, str) and rendered:
                     html = rendered
             result = self._extract_email(html, website_domain, contact_url)
             if result:

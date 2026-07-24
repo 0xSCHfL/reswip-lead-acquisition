@@ -56,6 +56,14 @@ class InfobelRecord:
     tva: str = ""
     infobel_url: str = ""
     financial_url: str = ""
+    financial_company_name: str = ""
+    financial_registered_office: str = ""
+    financial_creation_date: str = ""
+    financial_tva: str = ""
+    financial_fiscal_year: str = ""
+    financial_administrators: str = ""
+    financial_nacebel: str = ""
+    financial_employee_count: str = ""
     search_results_url: str = ""
     scrape_date: str = ""
 
@@ -178,6 +186,53 @@ def _extract_financial_link(page, detail_url: str) -> tuple[str, str]:
 
     log.debug("no financial link found on %s", detail_url)
     return "", ""
+
+
+_FINANCIAL_LABELS = (
+    r"Nom de l'entreprise", r"Siège Social", r"Date de création", r"TVA",
+    r"Année fiscale", r"Administrateur(?:s)?", r"Classification Nacebel",
+    r"Nombre d['’]employés",
+)
+_FINANCIAL_LABEL_BOUNDARY = "|".join(
+    (*_FINANCIAL_LABELS, r"Autres liens:?", r"NOS SERVICES", r"SÉLECTIONNEZ UN PAYS")
+)
+
+
+def _financial_value(text: str, label: str) -> str:
+    pattern = rf"{label}\s*(.*?)(?=(?:{_FINANCIAL_LABEL_BOUNDARY})|$)"
+    match = re.search(pattern, text, re.I | re.S)
+    return _clean(match.group(1)) if match else ""
+
+
+def _financial_raw_value(text: str, label: str) -> str:
+    pattern = rf"{label}\s*(.*?)(?=(?:{_FINANCIAL_LABEL_BOUNDARY})|$)"
+    match = re.search(pattern, text, re.I | re.S)
+    return match.group(1) if match else ""
+
+
+def _parse_financial_page_text(text: str) -> dict[str, str]:
+    """Extract labeled financial fields from an Infobel financial page."""
+    company = _financial_value(text, r"Nom de l'entreprise")
+    office = _financial_value(text, r"Siège Social")
+    creation = _financial_value(text, r"Date de création")
+    tva = _financial_value(text, r"TVA")
+    tva_match = re.search(r"BE\s?\d{4}[ .]?\d{3}[ .]?\d{3}", tva, re.I)
+    tva = "BE" + re.sub(r"\D", "", tva_match.group(0)) if tva_match else ""
+    fiscal = _financial_value(text, r"Année fiscale")
+    administrators = _financial_raw_value(text, r"Administrateur(?:s)?")
+    admin_parts = [_clean(part) for part in re.split(r"\n+", administrators) if _clean(part)]
+    nacebel = _financial_value(text, r"Classification Nacebel")
+    employees = _financial_value(text, r"Nombre d['’]employés")
+    return {
+        "financial_company_name": company,
+        "financial_registered_office": office,
+        "financial_creation_date": creation,
+        "financial_tva": tva,
+        "financial_fiscal_year": fiscal,
+        "financial_administrators": "; ".join(admin_parts),
+        "financial_nacebel": nacebel,
+        "financial_employee_count": employees,
+    }
 
 
 def _is_challenge_page(page) -> bool:
@@ -573,6 +628,12 @@ class InfobelScraper:
             postal_match = re.search(r"\b(\d{4})\s+([^\n|]+)", body)
             financial_url, financial_tva = _extract_financial_link(page, detail_url)
             body_tva = _extract_tva(detail_url, body)
+            financial_fields: dict[str, str] = {}
+            if financial_url:
+                try:
+                    financial_fields = self._scrape_financial_page(context, financial_url)
+                except Exception:
+                    log.warning("financial page extraction failed for %s", financial_url, exc_info=True)
 
             # Build address line
             address = ""
@@ -595,6 +656,7 @@ class InfobelScraper:
                 tva=financial_tva or body_tva,
                 infobel_url=detail_url,
                 financial_url=financial_url,
+                **financial_fields,
                 scrape_date=date.today().isoformat(),
             )
             log.debug(
@@ -608,6 +670,27 @@ class InfobelScraper:
                 record.tva,
             )
             return record
+        finally:
+            page.close()
+
+    def _scrape_financial_page(self, context, financial_url: str) -> dict[str, str]:
+        """Open and parse an Infobel financial page in the current context."""
+        page = context.new_page()
+        try:
+            page.goto(financial_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
+            page.wait_for_timeout(1_000)
+            body = page.locator("body").inner_text(timeout=10_000)
+            if "/Landing/Abuse" in page.url or "Informations financières" not in body:
+                log.warning("financial page rejected as abuse/challenge: url=%s", page.url)
+                return {}
+            fields = _parse_financial_page_text(body)
+            log.info(
+                "financial fields extracted: company=%r administrators=%r employees=%r",
+                fields["financial_company_name"],
+                fields["financial_administrators"],
+                fields["financial_employee_count"],
+            )
+            return fields
         finally:
             page.close()
 

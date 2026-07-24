@@ -21,10 +21,52 @@ from reswip_leads.sources.infobel.scraper import (  # noqa: E402
     InfobelRecord,
     InfobelScraper,
     InfobelSearchError,
+    _parse_financial_page_text,
     _extract_financial_link,
     _token_summary,
     _validate_results_url,
 )
+
+
+def test_parse_financial_page_text_extracts_company_fields():
+    text = """
+    Informations financières
+    Nom de l'entreprise Been
+    Siège SocialRue du Cheval Blanc 41 4347 Fexhe-le-Haut-Clocher LIEGE
+    Date de création06/11/2009
+    TVABE0820423228
+    Année fiscale31/12/2024
+    AdministrateurPierre Bolaers
+    Joo-Kyung Stassart
+    Classification NacebelGestion d’installations sportives
+    Nombre d'employés12 (2024)
+    """
+    result = _parse_financial_page_text(text)
+    assert result == {
+        "financial_company_name": "Been",
+        "financial_registered_office": "Rue du Cheval Blanc 41 4347 Fexhe-le-Haut-Clocher LIEGE",
+        "financial_creation_date": "06/11/2009",
+        "financial_tva": "BE0820423228",
+        "financial_fiscal_year": "31/12/2024",
+        "financial_administrators": "Pierre Bolaers; Joo-Kyung Stassart",
+        "financial_nacebel": "Gestion d’installations sportives",
+        "financial_employee_count": "12 (2024)",
+    }
+
+
+def test_parse_financial_page_text_stops_at_footer_links():
+    result = _parse_financial_page_text(
+        "Nom de l'entrepriseVN Rocourt\n"
+        "Classification NacebelCommerce de détail de vêtements\n"
+        "Autres liens:\nPublications comptes annuels\n"
+    )
+    assert result["financial_company_name"] == "VN Rocourt"
+    assert result["financial_nacebel"] == "Commerce de détail de vêtements"
+
+
+def test_parse_financial_page_text_does_not_treat_footer_as_tva():
+    result = _parse_financial_page_text("TVA SUIVEZ NOUS © 1995 - 2026 Infobel")
+    assert result["financial_tva"] == ""
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
