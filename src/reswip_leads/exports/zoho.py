@@ -4,7 +4,7 @@ Exports canonical Lead objects to Zoho-compatible CSV or XLSX files.
 Two schemas exist:
 
 - ``ZOHO_COLUMNS``: generic / Insurance (21 columns, comma-delimited)
-- ``ENERGY_ZOHO_COLUMNS``: Energy CRM (24 columns, semicolon-delimited,
+- ``ENERGY_ZOHO_COLUMNS``: Energy CRM (23 columns, semicolon-delimited,
   UTF-8 with BOM)
 """
 from __future__ import annotations
@@ -108,7 +108,7 @@ ENERGY_ZOHO_COLUMNS = [
     "Phone",
     "Mobile",
     "Fax",
-    "webite",
+    "Website",
     "Email",
     "TVA Number",
     "First Name",
@@ -117,14 +117,13 @@ ENERGY_ZOHO_COLUMNS = [
     "Email 1",
     "Contact First Name",
     "Contact Last Name",
-    "PreLead Prospect Name",
-    "DB_Region",
+    "DB Region",
     "Language",
     "Organization",
     "Lead Source",
 ]
 
-assert len(ENERGY_ZOHO_COLUMNS) == 24
+assert len(ENERGY_ZOHO_COLUMNS) == 23
 
 
 @dataclass
@@ -132,24 +131,6 @@ class EnergyExportMetrics:
     """Counters produced by the Energy CRM export."""
 
     total_rows: int = 0
-    business_name_fallbacks: int = 0
-
-
-def _energy_prelead_name(lead: Lead) -> str:
-    """Build *PreLead Prospect Name*.
-
-    Rules:
-    - If ``first_name`` and ``last_name`` exist:
-      ``"<first> <LAST>"`` (last name uppercased).
-    - Otherwise fall back to ``company_name`` so the field is never empty.
-    """
-    first = (lead.first_name or "").strip()
-    last = (lead.last_name or "").strip()
-    if first or last:
-        return f"{first} {last.upper()}".strip()
-    return lead.company_name
-
-
 def energy_lead_to_row(
     lead: Lead,
     profile: Optional[Profile] = None,
@@ -161,15 +142,6 @@ def energy_lead_to_row(
     if profile:
         org = profile.extra.get("organization", "")
         source = profile.extra.get("lead_source", "")
-
-    first = (lead.first_name or "").strip()
-    last = (lead.last_name or "").strip()
-    if first or last:
-        prelead = f"{first} {last.upper()}".strip()
-    else:
-        prelead = lead.company_name
-        if metrics is not None:
-            metrics.business_name_fallbacks += 1
 
     db_region = lead.db_region or lead.region
 
@@ -184,7 +156,7 @@ def energy_lead_to_row(
         "Phone": lead.phone or "",
         "Mobile": lead.mobile or "",
         "Fax": lead.fax or "",
-        "webite": lead.website or "",
+        "Website": lead.website or "",
         "Email": lead.email or "",
         "TVA Number": lead.tva,
         "First Name": lead.first_name or "",
@@ -193,8 +165,7 @@ def energy_lead_to_row(
         "Email 1": lead.email1 or lead.email or "",
         "Contact First Name": lead.first_name or "",
         "Contact Last Name": (lead.last_name or "").upper(),
-        "PreLead Prospect Name": prelead,
-        "DB_Region": db_region,
+        "DB Region": db_region,
         "Language": lead.language,
         "Organization": org,
         "Lead Source": source,

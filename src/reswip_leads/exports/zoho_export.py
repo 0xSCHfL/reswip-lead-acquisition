@@ -133,7 +133,7 @@ def load_leads(csv_path: str) -> list[Lead]:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Export leads to Energy CRM-ready CSV (24 columns, semicolon-delimited)."
+        description="Export leads to Energy CRM-ready CSV (23 columns, semicolon-delimited)."
     )
     parser.add_argument("--input", required=True, help="Input CSV file path")
     parser.add_argument("--output", required=True, help="Output CSV file path")
@@ -154,11 +154,6 @@ def main(argv: list[str] | None = None) -> None:
     output_path, metrics = export_energy_csv(leads, args.output, profile)
 
     print(f"Exported {metrics.total_rows} rows to {output_path}")
-    if metrics.business_name_fallbacks:
-        print(
-            f"  ({metrics.business_name_fallbacks} rows used Business Name fallback "
-            f"for PreLead Prospect Name)"
-        )
 
 
 if __name__ == "__main__":

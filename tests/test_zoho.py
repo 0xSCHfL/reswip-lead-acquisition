@@ -217,7 +217,7 @@ class TestExportXlsx:
 
 class TestEnergyZohoColumns:
     def test_column_count(self):
-        assert len(ENERGY_ZOHO_COLUMNS) == 24
+        assert len(ENERGY_ZOHO_COLUMNS) == 23
 
     def test_expected_columns(self):
         expected = [
@@ -231,7 +231,7 @@ class TestEnergyZohoColumns:
             "Phone",
             "Mobile",
             "Fax",
-            "webite",
+            "Website",
             "Email",
             "TVA Number",
             "First Name",
@@ -240,69 +240,12 @@ class TestEnergyZohoColumns:
             "Email 1",
             "Contact First Name",
             "Contact Last Name",
-            "PreLead Prospect Name",
-            "DB_Region",
+            "DB Region",
             "Language",
             "Organization",
             "Lead Source",
         ]
         assert ENERGY_ZOHO_COLUMNS == expected
-
-    def test_prelead_prospect_name_position(self):
-        idx = ENERGY_ZOHO_COLUMNS.index("PreLead Prospect Name")
-        assert ENERGY_ZOHO_COLUMNS[idx - 1] == "Contact Last Name"
-        assert ENERGY_ZOHO_COLUMNS[idx + 1] == "DB_Region"
-
-
-class TestEnergyPreLeadName:
-    def test_first_and_last_name(self):
-        lead = Lead(
-            company_name="Acme",
-            tva="0123456789",
-            first_name="Pierre",
-            last_name="DEBAISIEUX",
-        )
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] == "Pierre DEBAISIEUX"
-
-    def test_last_name_uppercased(self):
-        lead = Lead(
-            company_name="Acme",
-            tva="0123456789",
-            first_name="Jean",
-            last_name="dupont",
-        )
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] == "Jean DUPONT"
-
-    def test_only_last_name(self):
-        lead = Lead(
-            company_name="Acme",
-            tva="0123456789",
-            last_name="Smith",
-        )
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] == "SMITH"
-
-    def test_only_first_name(self):
-        lead = Lead(
-            company_name="Acme",
-            tva="0123456789",
-            first_name="Jean",
-        )
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] == "Jean"
-
-    def test_fallback_to_business_name_when_no_contact(self):
-        lead = Lead(company_name="Acme BV", tva="0123456789")
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] == "Acme BV"
-
-    def test_never_empty(self):
-        lead = Lead(company_name="Acme", tva="0123456789")
-        row = energy_lead_to_row(lead)
-        assert row["PreLead Prospect Name"] != ""
-
 
 class TestEnergyExportCsv:
     def test_header_matches_energy_columns(self, tmp_path):
@@ -314,14 +257,14 @@ class TestEnergyExportCsv:
             header = next(reader)
         assert header == ENERGY_ZOHO_COLUMNS
 
-    def test_column_count_24(self, tmp_path):
+    def test_column_count_23(self, tmp_path):
         leads = [Lead(company_name="Acme", tva="0123456789")]
         out = tmp_path / "out.csv"
         export_energy_csv(leads, str(out))
         with open(out, encoding="utf-8-sig") as f:
             reader = csv.reader(f, delimiter=";")
             header = next(reader)
-        assert len(header) == 24
+        assert len(header) == 23
 
     def test_semicolon_delimiter(self, tmp_path):
         leads = [Lead(company_name="Acme", tva="0123456789")]
@@ -387,7 +330,7 @@ class TestEnergyExportCsv:
             row = next(reader)
         assert row["Sector of Activity"] == "Energy"
 
-    def test_webite_column_exists(self, tmp_path):
+    def test_website_column_exists(self, tmp_path):
         leads = [
             Lead(
                 company_name="Acme",
@@ -400,32 +343,7 @@ class TestEnergyExportCsv:
         with open(out, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f, delimiter=";")
             row = next(reader)
-        assert row["webite"] == "https://acme.be"
-
-    def test_prelead_name_with_contact(self, tmp_path):
-        leads = [
-            Lead(
-                company_name="Acme",
-                tva="0123456789",
-                first_name="Pierre",
-                last_name="DEBAISIEUX",
-            )
-        ]
-        out = tmp_path / "out.csv"
-        export_energy_csv(leads, str(out))
-        with open(out, encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f, delimiter=";")
-            row = next(reader)
-        assert row["PreLead Prospect Name"] == "Pierre DEBAISIEUX"
-
-    def test_prelead_name_fallback_to_business_name(self, tmp_path):
-        leads = [Lead(company_name="Acme BV", tva="0123456789")]
-        out = tmp_path / "out.csv"
-        export_energy_csv(leads, str(out))
-        with open(out, encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f, delimiter=";")
-            row = next(reader)
-        assert row["PreLead Prospect Name"] == "Acme BV"
+        assert row["Website"] == "https://acme.be"
 
     def test_no_extra_columns(self, tmp_path):
         leads = [Lead(company_name="Acme", tva="0123456789")]
@@ -449,46 +367,7 @@ class TestEnergyExportCsv:
         assert row["Phone"] == ""
         assert row["Mobile"] == ""
         assert row["Fax"] == ""
-        assert row["webite"] == ""
-
-
-class TestEnergyExportMetrics:
-    def test_fallback_count(self, tmp_path):
-        leads = [
-            Lead(company_name="Acme", tva="0123456789"),
-            Lead(
-                company_name="Beta",
-                tva="0415678901",
-                first_name="Jean",
-                last_name="Dupont",
-            ),
-        ]
-        out = tmp_path / "out.csv"
-        _, metrics = export_energy_csv(leads, str(out))
-        assert metrics.total_rows == 2
-        assert metrics.business_name_fallbacks == 1
-
-    def test_all_fallbacks(self, tmp_path):
-        leads = [
-            Lead(company_name="Acme", tva="0123456789"),
-            Lead(company_name="Beta", tva="0415678901"),
-        ]
-        out = tmp_path / "out.csv"
-        _, metrics = export_energy_csv(leads, str(out))
-        assert metrics.business_name_fallbacks == 2
-
-    def test_no_fallbacks_when_names_present(self, tmp_path):
-        leads = [
-            Lead(
-                company_name="Acme",
-                tva="0123456789",
-                first_name="Jean",
-                last_name="Dupont",
-            ),
-        ]
-        out = tmp_path / "out.csv"
-        _, metrics = export_energy_csv(leads, str(out))
-        assert metrics.business_name_fallbacks == 0
+        assert row["Website"] == ""
 
 
 class TestEnergyProfileDefaults:
