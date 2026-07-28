@@ -97,14 +97,6 @@ def _first_external_link(page, current_url: str) -> str:
 
 
 def _extract_phone(page) -> str:
-    phones = []
-    texts = page.locator("#phones-region_BE106476086 .detail-text, section[id^=phones-region] .detail-text")
-    for i in range(texts.count()):
-        num = _clean(texts.nth(i).inner_text(timeout=1_000))
-        if num:
-            phones.append(num)
-    if phones:
-        return "; ".join(phones)
     body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d ./-]{7,}|0\d[\d ./-]{8,})", body)
     return _clean(matches[-1]) if matches else ""
@@ -501,14 +493,13 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     # ── Extract data ──────────────────────────────────────────
     # Click "Afficher le téléphone" to reveal phone numbers
     try:
-        phone_btn = page.get_by_text("Afficher le téléphone", exact=True)
+        phone_btn = page.locator("text=Afficher le téléphone").first
         if phone_btn.count():
-            phone_btn.first.click(timeout=5_000)
-            page.wait_for_timeout(2_000)
+            phone_btn.click(timeout=5_000)
+            page.wait_for_timeout(3_000)
     except Exception:
         pass
 
-    phone = _extract_phone(page)
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
 
@@ -554,7 +545,7 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
         "postal_code": postal_match.group(1) if postal_match else "",
         "city": _clean(postal_match.group(2)) if postal_match else "",
         "category": "",
-        "phone": phone,
+        "phone": _extract_phone(page),
         "email": email,
         "website": website,
         "tva": financial_tva or body_tva,
