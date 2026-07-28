@@ -498,14 +498,19 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     # ── Extract data ──────────────────────────────────────────
     # Click "Afficher le téléphone" to reveal phone numbers
     try:
-        phone_btn = page.locator("button, a, span, div").filter(has_text="Afficher le téléphone").first
-        if phone_btn.count():
-            log.info("clicking phone reveal button")
-            phone_btn.click(timeout=5_000)
+        btn = page.locator("text=Afficher le téléphone").first
+        if btn.count():
+            log.info("found phone reveal button, dispatching click")
+            btn.dispatch_event("click")
             page.wait_for_timeout(3_000)
-    except Exception:
-        log.warning("phone reveal button not found or not clickable")
-        pass
+        else:
+            log.debug("phone button not found via text=, trying get_by_text")
+            btn2 = page.get_by_text("Afficher le téléphone").first
+            if btn2.count():
+                btn2.dispatch_event("click")
+                page.wait_for_timeout(3_000)
+    except Exception as exc:
+        log.debug("phone button click error: %s", exc)
 
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
