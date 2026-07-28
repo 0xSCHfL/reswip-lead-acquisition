@@ -97,6 +97,13 @@ def _first_external_link(page, current_url: str) -> str:
 
 
 def _extract_phone(page) -> str:
+    js_phones = page.evaluate("""() => {
+        const els = document.querySelectorAll('[id^=phones-region] .detail-text');
+        return Array.from(els).map(el => el.textContent.trim()).filter(Boolean).join('; ');
+    }""")
+    if js_phones:
+        log.debug("phone extracted via JS: %s", js_phones)
+        return js_phones
     body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d . -]{7,}|0[\d . -]{9,})", body)
     if matches:
@@ -498,17 +505,13 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     # ── Extract data ──────────────────────────────────────────
     # Click "Afficher le téléphone" to reveal phone numbers
     try:
-        btn = page.locator("text=Afficher le téléphone").first
+        btn = page.get_by_text("Afficher le téléphone").first
         if btn.count():
-            log.info("found phone reveal button, dispatching click")
-            btn.dispatch_event("click")
+            log.info("clicking phone reveal button (force=true)")
+            btn.click(timeout=5_000, force=True)
             page.wait_for_timeout(3_000)
         else:
-            log.debug("phone button not found via text=, trying get_by_text")
-            btn2 = page.get_by_text("Afficher le téléphone").first
-            if btn2.count():
-                btn2.dispatch_event("click")
-                page.wait_for_timeout(3_000)
+            log.debug("phone button not found")
     except Exception as exc:
         log.debug("phone button click error: %s", exc)
 
