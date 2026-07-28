@@ -184,6 +184,54 @@ Databases/<Sector>/Belgium/<Region>/
 └── Reports/
 ```
 
+## Infobel Scraping (reCAPTCHA Auto-Solve)
+
+Scrapes [Infobel Belgium](https://www.infobel.com/fr/belgium/) business details — name, address, TVA, phone, email, hours, financial data — by searching sector + region.
+
+### Setup
+
+```bash
+# 1. System deps (Ubuntu/Debian)
+sudo apt update && sudo apt install -y ffmpeg chromium
+
+# 2. Python venv
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Install package + Playwright browser
+pip install -e .
+playwright install chromium
+```
+
+### Usage
+
+```bash
+# Collect detail URLs from a search, then scrape them
+python -m reswip_leads.sources.infobel.collect_links "Restaurant" "Liège" -o links.csv
+python -m reswip_leads.sources.infobel.scrape_urls links.csv
+
+# Or run both in one command
+python -m reswip_leads.sources.infobel.pipeline "Restaurant" "Liège" -o results.csv
+
+# Headless (no display needed — works on any Linux VPS)
+python -m reswip_leads.sources.infobel.collect_links "Restaurant" "Liège" -o links.csv --no-headed
+```
+
+### How the Solver Works
+
+Infobel uses Cloudflare JS challenges + Google reCAPTCHA v2. The solver:
+
+1. Clicks the reCAPTCHA checkbox
+2. Switches to the **audio challenge** (no API key needed)
+3. Clicks play so reCAPTCHA populates the audio URL
+4. Downloads the MP3 via Playwright's request context (avoids CORS)
+5. Converts to WAV via `ffmpeg`
+6. Transcribes with Google Speech Recognition (`speech_recognition`)
+7. Fills the response and clicks verify
+8. Repeats on wrong answer (up to 5 attempts — retry on failure)
+
+No Capsolver, no Gemini, no API keys. Requires `ffmpeg` on the system and an internet connection for Google Speech Recognition.
+
 ## Development Status
 
 The repository foundation is created. The next implementation milestone is a
