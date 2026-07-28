@@ -43,6 +43,97 @@ selects an iQualif category, region, language, CRM organization, and lead
 source. The resulting database can be imported into Zoho and used for energy
 prospecting calls.
 
+## Enrich First Name, Last Name, and Position
+
+The decision-maker enrichment uses the Belgian TVA number as the lookup key.
+KBO web is the official source; Pappers is used as a fallback when KBO does
+not expose a usable function holder. Existing values are never overwritten, and
+missing values remain empty when neither source returns reliable evidence.
+
+From the repository root, set the source and output paths and run:
+
+```bash
+cd /home/sohaib/Work/projects/myP/Reswip-lead-acquisition
+export PYTHONPATH=src
+
+python3 -m reswip_leads.pipeline \
+  --profile profiles/energy.yaml \
+  --input /path/to/input.csv \
+  --output /path/to/enriched.csv \
+  --enricher both
+```
+
+Use only one source when needed:
+
+```bash
+# KBO web only (official register)
+python3 -m reswip_leads.pipeline \
+  --profile profiles/energy.yaml \
+  --input /path/to/input.csv \
+  --output /path/to/enriched_kbo.csv \
+  --enricher kbo-web
+
+# Pappers only (fallback/commercial directory)
+python3 -m reswip_leads.pipeline \
+  --profile profiles/energy.yaml \
+  --input /path/to/input.csv \
+  --output /path/to/enriched_pappers.csv \
+  --enricher pappers
+```
+
+If a proxy list is required, pass one URL per line with `--proxy-file`:
+
+```bash
+python3 -m reswip_leads.pipeline \
+  --profile profiles/energy.yaml \
+  --input /path/to/input.csv \
+  --output /path/to/enriched.csv \
+  --enricher both \
+  --proxy-file /path/to/proxies.txt
+```
+
+The pipeline also classifies Province/Region into Language and DB Region,
+deduplicates by normalized TVA, and preserves the original input columns.
+Review the output before CRM import. Pappers-only matches should be treated as
+medium confidence; do not invent a name or position from a company name.
+
+### Download and use a KBO bulk ZIP (optional)
+
+The official bulk ZIP can be downloaded when a direct URL or URL template is
+configured:
+
+```bash
+python3 -m reswip_leads.verification.kbo.downloader \
+  --output-dir data/kbo \
+  --url "$RESWIP_KBO_ZIP_URL"
+```
+
+Then add the ZIP to the pipeline for offline company verification:
+
+```bash
+python3 -m reswip_leads.pipeline \
+  --profile profiles/energy.yaml \
+  --input /path/to/input.csv \
+  --kbo-zip data/kbo/KboOpenData_YYYY_YYYY_MM_DD_Full.zip \
+  --output /path/to/enriched.csv \
+  --enricher both
+```
+
+### Recheck missing emails only
+
+For a database that already has names and only needs public email discovery:
+
+```bash
+python3 -m reswip_leads.enrichment.email_recheck \
+  --input /path/to/enriched.csv \
+  --output /path/to/email_rechecked.csv \
+  --source all \
+  --missing-only
+```
+
+Email sources are checked only for missing email fields. Store the evidence URL
+and review medium/low-confidence directory results before calling.
+
 ## Sector Modules
 
 - **Energy** — iQualif energy categories, KBO verification, public contact

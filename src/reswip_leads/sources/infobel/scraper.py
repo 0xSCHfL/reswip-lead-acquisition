@@ -54,6 +54,7 @@ class InfobelRecord:
     email: str = ""
     website: str = ""
     tva: str = ""
+    hours: str = ""
     infobel_url: str = ""
     financial_url: str = ""
     financial_company_name: str = ""
