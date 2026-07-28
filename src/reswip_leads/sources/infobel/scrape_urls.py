@@ -522,26 +522,21 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
         return {}
 
     # ── Extract data ──────────────────────────────────────────
-    # Dismiss consent overlay and click phone reveal button
-    _dismiss_consent(page)
-    page.wait_for_timeout(1_000)
-    try:
-        btn = page.get_by_text("Afficher le téléphone").first
-        if btn.count():
-            btn.click(timeout=5_000)
-            page.wait_for_timeout(3_000)
-    except Exception as exc:
-        log.debug("phone click failed: %s", exc)
-        # Fallback: JS click
-        page.evaluate("""() => {
-            const els = document.querySelectorAll('[class*="detail-text"]');
-            for (const el of els) {
-                if (el.textContent.trim() === 'Afficher le téléphone') {
-                    el.click(); break;
-                }
+    # Hide consent and click phone reveal button via JS
+    page.evaluate("""() => {
+        const cmp = document.querySelector('#__abconsent-cmp');
+        if (cmp) cmp.style.display = 'none';
+    }""")
+    page.wait_for_timeout(500)
+    page.evaluate("""() => {
+        const els = document.querySelectorAll('[class*="detail-text"]');
+        for (const el of els) {
+            if (el.textContent.trim() === 'Afficher le téléphone') {
+                el.click(); break;
             }
-        }""")
-        page.wait_for_timeout(3_000)
+        }
+    }""")
+    page.wait_for_timeout(3_000)
 
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
