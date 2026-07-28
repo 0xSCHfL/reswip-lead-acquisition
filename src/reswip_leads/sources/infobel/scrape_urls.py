@@ -61,8 +61,19 @@ def _first_email(page) -> str:
 
 _SKIPPED_DOMAINS = (
     "ejustice.just.fgov.be", "economie.fgov.be", "facebook.com", "twitter.com",
-    "linkedin.com", "instagram.com", "youtube.com", "google.",
+    "linkedin.com", "instagram.com", "youtube.com", "google.", "nbb.be",
 )
+
+
+def _site_internet_link(page, current_url: str) -> str:
+    """Find the link labelled 'Site internet' on the Infobel detail page."""
+    for label in ("Site internet", "Website"):
+        link = page.locator(f"a:has-text('{label}')")
+        if link.count():
+            href = link.first.get_attribute("href") or ""
+            if href.startswith(("http://", "https://")):
+                return href
+    return ""
 
 
 def _first_external_link(page, current_url: str) -> str:
@@ -497,6 +508,11 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
 
     postal_match = re.search(r"\b(\d{4})\s+([^\n|]+)", body)
 
+    # Extract non-financial fields BEFORE navigating to financial page
+    email = _first_email(page)
+    website = _site_internet_link(page, url) or _first_external_link(page, url)
+    hours = _extract_hours(page)
+
     financial_url, financial_tva = _extract_financial_link(page, url)
     body_tva = _extract_tva(url, body)
 
@@ -508,8 +524,6 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     if not address and financial_fields.get("financial_registered_office"):
         address = financial_fields["financial_registered_office"]
 
-    hours = _extract_hours(page)
-
     return {
         "business_name": name,
         "address": address,
@@ -517,8 +531,8 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
         "city": _clean(postal_match.group(2)) if postal_match else "",
         "category": "",
         "phone": _extract_phone(body),
-        "email": _first_email(page),
-        "website": _first_external_link(page, url),
+        "email": email,
+        "website": website,
         "tva": financial_tva or body_tva,
         "hours": hours,
         "financial_url": financial_url,
