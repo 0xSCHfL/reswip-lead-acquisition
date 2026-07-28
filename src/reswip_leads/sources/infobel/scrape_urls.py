@@ -437,6 +437,28 @@ def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
         return False
 
 
+def _dismiss_consent(page) -> None:
+    try:
+        consent = page.locator("#__abconsent-cmp")
+        if consent.is_visible():
+            accept = consent.locator("button:has-text('Accepter')")
+            if accept.count():
+                accept.click(timeout=5_000)
+                page.wait_for_timeout(1_000)
+                return
+            accept = consent.locator("button:has-text('Accept')")
+            if accept.count():
+                accept.click(timeout=5_000)
+                page.wait_for_timeout(1_000)
+                return
+        page.evaluate("""() => {
+            const el = document.querySelector('#__abconsent-cmp');
+            if (el) el.style.display = 'none';
+        }""")
+    except Exception:
+        pass
+
+
 def _accept_terms(page) -> None:
     """Accept Infobel terms and conditions overlay if present."""
     try:
