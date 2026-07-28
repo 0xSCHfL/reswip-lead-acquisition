@@ -3,6 +3,7 @@ requests
 beautifulsoup4
 openpyxl
 playwright
+SpeechRecognition
 
 # dev / test
 pytest
