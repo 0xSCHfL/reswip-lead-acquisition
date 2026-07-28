@@ -97,15 +97,14 @@ def _first_external_link(page, current_url: str) -> str:
 
 
 def _extract_phone(page) -> str:
-    tel_links = page.locator('a[href^="tel:"]')
     phones = []
-    for i in range(tel_links.count()):
-        href = tel_links.nth(i).get_attribute("href") or ""
-        num = href.removeprefix("tel:").strip()
+    texts = page.locator("#phones-region_BE106476086 .detail-text, section[id^=phones-region] .detail-text")
+    for i in range(texts.count()):
+        num = _clean(texts.nth(i).inner_text(timeout=1_000))
         if num:
             phones.append(num)
     if phones:
-        return phones[-1]
+        return "; ".join(phones)
     body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d ./-]{7,}|0\d[\d ./-]{8,})", body)
     return _clean(matches[-1]) if matches else ""
