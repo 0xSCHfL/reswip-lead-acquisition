@@ -194,8 +194,34 @@ def _wait_for_challenge(page, headed: bool, timeout_ms: int = 300_000) -> bool:
 # Search form interaction
 # ---------------------------------------------------------------------------
 
+def _dismiss_consent(page) -> None:
+    """Dismiss cookie consent popup if present."""
+    try:
+        consent = page.locator("#__abconsent-cmp")
+        if consent.is_visible():
+            accept = consent.locator("button:has-text('Accepter')")
+            if accept.count():
+                accept.click(timeout=5_000)
+                page.wait_for_timeout(1_000)
+                return
+            accept = consent.locator("button:has-text('Accept')")
+            if accept.count():
+                accept.click(timeout=5_000)
+                page.wait_for_timeout(1_000)
+                return
+        # Try hiding the overlay via delete/escape
+        page.evaluate("""() => {
+            const el = document.querySelector('#__abconsent-cmp');
+            if (el) el.style.display = 'none';
+        }""")
+    except Exception:
+        pass
+
+
 def _fill_search_form(page, sector: str, region: str) -> None:
     """Fill Infobel's homepage search form (Kendo UI)."""
+    _dismiss_consent(page)
+
     # Locate inputs — try header selectors first, fallback to placeholders
     term = page.locator("#search-term-input-header")
     if not term.count():
@@ -213,7 +239,7 @@ def _fill_search_form(page, sector: str, region: str) -> None:
              term.count() > 0, place.count() > 0)
 
     # Fill sector — type and pick from Kendo dropdown
-    term.last.click()
+    term.last.dispatch_event("click")
     page.wait_for_timeout(300)
     term.last.fill("")
     page.wait_for_timeout(200)
@@ -225,7 +251,7 @@ def _fill_search_form(page, sector: str, region: str) -> None:
     _pick_kendo(page, sector, exact_match=sector)
 
     # Fill region — type and pick from Kendo dropdown
-    place.last.click()
+    place.last.dispatch_event("click")
     page.wait_for_timeout(300)
     place.last.fill("")
     page.wait_for_timeout(200)
@@ -241,7 +267,7 @@ def _fill_search_form(page, sector: str, region: str) -> None:
     if not btn.count():
         btn = page.get_by_text("Recherche", exact=True).first
     log.info("clicking search button")
-    btn.click(timeout=10_000)
+    btn.dispatch_event("click")
 
 
 def _pick_kendo(page, typed_text: str, exact_match: str = "") -> bool:
