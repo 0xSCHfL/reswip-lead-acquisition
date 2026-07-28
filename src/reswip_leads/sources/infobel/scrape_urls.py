@@ -96,7 +96,17 @@ def _first_external_link(page, current_url: str) -> str:
     return ""
 
 
-def _extract_phone(body: str) -> str:
+def _extract_phone(page) -> str:
+    tel_links = page.locator('a[href^="tel:"]')
+    phones = []
+    for i in range(tel_links.count()):
+        href = tel_links.nth(i).get_attribute("href") or ""
+        num = href.removeprefix("tel:").strip()
+        if num:
+            phones.append(num)
+    if phones:
+        return phones[-1]
+    body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d ./-]{7,}|0\d[\d ./-]{8,})", body)
     return _clean(matches[-1]) if matches else ""
 
@@ -490,15 +500,16 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
         return {}
 
     # ── Extract data ──────────────────────────────────────────
-    for label in ("Afficher le téléphone", "Envoyer un e-mail"):
-        ctrl = page.get_by_text(label, exact=True)
-        if ctrl.count():
-            try:
-                ctrl.first.click(timeout=5_000)
-                page.wait_for_timeout(500)
-            except Exception:
-                pass
+    # Click "Afficher le téléphone" to reveal phone numbers
+    try:
+        phone_btn = page.get_by_text("Afficher le téléphone", exact=True)
+        if phone_btn.count():
+            phone_btn.first.click(timeout=5_000)
+            page.wait_for_timeout(2_000)
+    except Exception:
+        pass
 
+    phone = _extract_phone(page)
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
 
@@ -544,7 +555,7 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
         "postal_code": postal_match.group(1) if postal_match else "",
         "city": _clean(postal_match.group(2)) if postal_match else "",
         "category": "",
-        "phone": _extract_phone(body),
+        "phone": phone,
         "email": email,
         "website": website,
         "tva": financial_tva or body_tva,
