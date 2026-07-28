@@ -98,7 +98,7 @@ def _first_external_link(page, current_url: str) -> str:
 
 def _extract_phone(page) -> str:
     body = page.locator("body").inner_text(timeout=5_000)
-    matches = re.findall(r"(?:\+32\s?\d[\d ./-]{7,}|0\d[\d ./-]{8,})", body)
+    matches = re.findall(r"(?:\+32\s?\d[\d . -]{7,}|0[\d . -]{9,})", body)
     return _clean(matches[-1]) if matches else ""
 
 
