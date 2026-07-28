@@ -97,20 +97,20 @@ def _first_external_link(page, current_url: str) -> str:
 
 
 def _extract_phone(page) -> str:
-    js_phones = page.evaluate("""() => {
-        const els = document.querySelectorAll('[id^=phones-region] .detail-text');
-        return Array.from(els).map(el => el.textContent.trim()).filter(Boolean).join('; ');
-    }""")
-    if js_phones:
-        log.debug("phone extracted via JS: %s", js_phones)
-        return js_phones
+    html = page.content()
+    multi = re.findall(r"(?:\+32\s?\d[\d . -]{7,}|0[\d . -]{9,})", html)
+    filtered = [m for m in multi if "/" not in m and len(m) > 10]
+    if filtered:
+        result = _clean(filtered[-1])
+        log.debug("phone extracted from page content: %s (matches=%d)", result, len(filtered))
+        return result
     body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d . -]{7,}|0[\d . -]{9,})", body)
     if matches:
         result = _clean(matches[-1])
-        log.debug("phone regex matched %d candidates: %s → %s", len(matches), matches, result)
+        log.debug("phone regex matched %d in body: %s", len(matches), result)
         return result
-    log.debug("no phone match in body (length=%d)", len(body))
+    log.debug("no phone found (body chars=%d)", len(body))
     return ""
 
 
@@ -504,16 +504,16 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
 
     # ── Extract data ──────────────────────────────────────────
     # Click "Afficher le téléphone" to reveal phone numbers
-    try:
-        btn = page.get_by_text("Afficher le téléphone").first
-        if btn.count():
-            log.info("clicking phone reveal button (force=true)")
-            btn.click(timeout=5_000, force=True)
-            page.wait_for_timeout(3_000)
-        else:
-            log.debug("phone button not found")
-    except Exception as exc:
-        log.debug("phone button click error: %s", exc)
+    page.evaluate("""() => {
+        const buttons = document.querySelectorAll('button, a, span, div');
+        for (const el of buttons) {
+            if (el.textContent.trim() === 'Afficher le téléphone') {
+                el.click();
+                break;
+            }
+        }
+    }""")
+    page.wait_for_timeout(3_000)
 
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
