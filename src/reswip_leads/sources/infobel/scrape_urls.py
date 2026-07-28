@@ -59,8 +59,24 @@ def _first_email(page) -> str:
     return (href or "").removeprefix("mailto:").strip()
 
 
+_SKIPPED_DOMAINS = (
+    "ejustice.just.fgov.be", "economie.fgov.be", "facebook.com", "twitter.com",
+    "linkedin.com", "instagram.com", "youtube.com", "google.",
+)
+
+
 def _first_external_link(page, current_url: str) -> str:
+    """Find first real business website on the page, skipping government/social domains."""
     count = page.locator("a[href]").count()
+    for i in range(count):
+        href = page.locator("a[href]").nth(i).get_attribute("href") or ""
+        absolute = urljoin(current_url, href)
+        if not (absolute.startswith(("http://", "https://")) and "infobel.com" not in absolute):
+            continue
+        if any(d in absolute.lower() for d in _SKIPPED_DOMAINS):
+            continue
+        return absolute
+    # Fallback: first external link (even if skipped domain)
     for i in range(count):
         href = page.locator("a[href]").nth(i).get_attribute("href") or ""
         absolute = urljoin(current_url, href)
