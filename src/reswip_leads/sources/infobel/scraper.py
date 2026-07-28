@@ -63,6 +63,9 @@ class InfobelRecord:
     financial_tva: str = ""
     financial_fiscal_year: str = ""
     financial_administrators: str = ""
+    position: str = ""
+    first_name: str = ""
+    last_name: str = ""
     financial_nacebel: str = ""
     financial_employee_count: str = ""
     search_results_url: str = ""
@@ -224,6 +227,17 @@ def _parse_financial_page_text(text: str) -> dict[str, str]:
     admin_parts = [_clean(part) for part in re.split(r"\n+", administrators) if _clean(part)]
     nacebel = _financial_value(text, r"Classification Nacebel")
     employees = _financial_value(text, r"Nombre d['’]employés")
+
+    position = ""
+    first_name = ""
+    last_name = ""
+    if admin_parts:
+        position = "Administrateur"
+        name = admin_parts[0].strip()
+        parts = name.split(None, 1)
+        first_name = parts[0] if parts else ""
+        last_name = parts[1] if len(parts) > 1 else ""
+
     return {
         "financial_company_name": company,
         "financial_registered_office": office,
@@ -231,6 +245,9 @@ def _parse_financial_page_text(text: str) -> dict[str, str]:
         "financial_tva": tva,
         "financial_fiscal_year": fiscal,
         "financial_administrators": "; ".join(admin_parts),
+        "position": position,
+        "first_name": first_name,
+        "last_name": last_name,
         "financial_nacebel": nacebel,
         "financial_employee_count": employees,
     }
