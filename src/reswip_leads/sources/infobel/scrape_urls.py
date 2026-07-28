@@ -99,7 +99,12 @@ def _first_external_link(page, current_url: str) -> str:
 def _extract_phone(page) -> str:
     body = page.locator("body").inner_text(timeout=5_000)
     matches = re.findall(r"(?:\+32\s?\d[\d . -]{7,}|0[\d . -]{9,})", body)
-    return _clean(matches[-1]) if matches else ""
+    if matches:
+        result = _clean(matches[-1])
+        log.debug("phone regex matched %d candidates: %s → %s", len(matches), matches, result)
+        return result
+    log.debug("no phone match in body (length=%d)", len(body))
+    return ""
 
 
 def _extract_hours(page) -> str:
