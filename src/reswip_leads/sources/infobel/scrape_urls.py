@@ -640,6 +640,12 @@ def process_csv(csv_path: str, *, headed: bool = False, dry_run: bool = False, l
             timezone_id="Europe/Brussels",
         )
 
+        def _write_csv():
+            with path.open("w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
+
         try:
             updated = 0
             for attempt_num, (idx, row) in enumerate(to_scrape, 1):
@@ -660,6 +666,7 @@ def process_csv(csv_path: str, *, headed: bool = False, dry_run: bool = False, l
                             row["scrape_date"] = date.today().isoformat()
                             updated += 1
                             log.info("  → OK: %s", data.get("business_name", "?"))
+                            _write_csv()
                             success = True
                             break
                         else:
@@ -682,6 +689,7 @@ def process_csv(csv_path: str, *, headed: bool = False, dry_run: bool = False, l
                 if not success:
                     log.error("  → FAILED after %d attempts: %s", _MAX_RETRIES, url)
                     row["scrape_date"] = date.today().isoformat()
+                    _write_csv()
                     if attempt_num < len(to_scrape):
                         extra = random.uniform(20, 40)
                         log.info("  → abuse detected, cooling down %.0fs…", extra)
@@ -697,12 +705,6 @@ def process_csv(csv_path: str, *, headed: bool = False, dry_run: bool = False, l
                 context.close()
             except Exception:
                 pass
-
-    # Write back
-    with path.open("w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
 
     log.info("CSV updated: %s (%d rows scraped)", path, updated)
     return updated
