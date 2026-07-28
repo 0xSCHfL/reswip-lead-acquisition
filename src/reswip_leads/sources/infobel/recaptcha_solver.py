@@ -82,8 +82,20 @@ def _transcribe(mp3_bytes: bytes) -> str:
                 pass
 
 
+def _hide_consent(page) -> None:
+    """Hide cookie consent overlay that blocks clicks."""
+    try:
+        page.evaluate("""() => {
+            const el = document.querySelector('#__abconsent-cmp');
+            if (el) el.style.display = 'none';
+        }""")
+    except Exception:
+        pass
+
+
 def solve_recaptcha_v2_sync(page, timeout_ms: int = 120_000) -> bool:
     """Solve reCAPTCHA v2 using audio challenge (sync Playwright)."""
+    _hide_consent(page)
     try:
         anchor = _wait_for_frame_sync(page, r"/recaptcha/(api2|enterprise)/anchor")
         if not anchor:

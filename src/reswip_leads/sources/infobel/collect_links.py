@@ -103,6 +103,15 @@ def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
              reason, timeout_ms // 1000)
     log.info("═══════════════════════════════════════════════════")
 
+    # Hide cookie consent overlay before interacting with reCAPTCHA
+    try:
+        page.evaluate("""() => {
+            const el = document.querySelector('#__abconsent-cmp');
+            if (el) el.style.display = 'none';
+        }""")
+    except Exception:
+        pass
+
     # Try full reCAPTCHA solve first (audio challenge)
     if _try_solve_recaptcha(page):
         page.wait_for_timeout(5_000)
