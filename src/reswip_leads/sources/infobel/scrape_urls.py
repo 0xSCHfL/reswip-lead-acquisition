@@ -538,6 +538,15 @@ def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     }""")
     page.wait_for_timeout(3_000)
 
+    phone_data = page.evaluate("""() => {
+        const section = document.querySelector('[id^=phones-region]');
+        if (section) {
+            const texts = section.querySelectorAll('.detail-text');
+            return 'FOUND: ' + Array.from(texts).map(el => el.textContent.trim()).filter(Boolean).join('; ');
+        }
+        return 'NO SECTION';
+    }""")
+    log.info("phone debug: %s", phone_data)
     body = page.locator("body").inner_text(timeout=10_000)
     lines = [_clean(line) for line in body.splitlines() if _clean(line)]
 
