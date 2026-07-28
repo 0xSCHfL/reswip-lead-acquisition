@@ -402,10 +402,26 @@ def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
         return False
 
 
+def _accept_terms(page) -> None:
+    """Accept Infobel terms and conditions overlay if present."""
+    try:
+        accept = page.get_by_text("Accept the conditions", exact=True)
+        if accept.count():
+            accept.click(timeout=5_000)
+            page.wait_for_timeout(2_000)
+            return
+    except Exception:
+        pass
+
+
 def scrape_tab(page, url: str, *, headed: bool = False) -> dict[str, str]:
     """Scrape one infobel detail page in an existing tab."""
     page.goto(url, wait_until="domcontentloaded", timeout=30_000)
     page.wait_for_timeout(5_000)
+
+    # Accept terms overlay if present (required before seeing business data)
+    _accept_terms(page)
+    page.wait_for_timeout(2_000)
 
     # ── Challenge / abuse handling ─────────────────────────────
     max_wait = 300_000 if headed else 60_000
