@@ -62,6 +62,7 @@ def _first_email(page) -> str:
 _SKIPPED_DOMAINS = (
     "ejustice.just.fgov.be", "economie.fgov.be", "facebook.com", "twitter.com",
     "linkedin.com", "instagram.com", "youtube.com", "google.", "nbb.be",
+    "infobelpro.com",
 )
 
 
@@ -76,6 +77,12 @@ def _site_internet_link(page, current_url: str) -> str:
     return ""
 
 
+def _is_skipped_external(url: str) -> bool:
+    """Return True for directory, government, and social links."""
+    low = (url or "").lower()
+    return any(domain in low for domain in _SKIPPED_DOMAINS)
+
+
 def _first_external_link(page, current_url: str) -> str:
     """Find first real business website on the page, skipping government/social domains."""
     count = page.locator("a[href]").count()
@@ -84,15 +91,9 @@ def _first_external_link(page, current_url: str) -> str:
         absolute = urljoin(current_url, href)
         if not (absolute.startswith(("http://", "https://")) and "infobel.com" not in absolute):
             continue
-        if any(d in absolute.lower() for d in _SKIPPED_DOMAINS):
+        if _is_skipped_external(absolute):
             continue
         return absolute
-    # Fallback: first external link (even if skipped domain)
-    for i in range(count):
-        href = page.locator("a[href]").nth(i).get_attribute("href") or ""
-        absolute = urljoin(current_url, href)
-        if absolute.startswith(("http://", "https://")) and "infobel.com" not in absolute:
-            return absolute
     return ""
 
 

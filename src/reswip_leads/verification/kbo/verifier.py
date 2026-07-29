@@ -46,7 +46,9 @@ class KboVerifier:
             return self._not_found(tva)
 
         try:
-            index = self._reader.build_index(path, targets={enterprise})
+            index = self._reader.build_index(
+                path, targets={enterprise}, include_activity=True
+            )
         except Exception:
             return self._not_found(tva)
 
@@ -84,7 +86,9 @@ class KboVerifier:
             return {tva: self._not_found(tva) for tva in tva_list}
 
         try:
-            index = self._reader.build_index(path, targets=enterprises)
+            index = self._reader.build_index(
+                path, targets=enterprises, include_activity=True
+            )
         except Exception:
             return {tva: self._not_found(tva) for tva in tva_list}
 

@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 from reswip_leads.verification.kbo.verifier import KboVerifier
-from reswip_leads.verification.kbo.zip_reader import KboRecord
+from reswip_leads.verification.kbo.zip_reader import KboRecord, KboZipReader
 
 
 def _build_kbo_zip(tmp_path, enterprises):
@@ -207,3 +207,42 @@ class TestKboVerifierWithZip:
         assert result["address"] == "Meir 10"
         assert result["zipcode"] == "2000"
         assert result["municipality"] == "Antwerpen"
+
+
+class TestKboZipReaderPerformance:
+    def test_build_index_skips_activity_file_by_default(self, tmp_path):
+        zip_path = _build_kbo_zip(
+            tmp_path,
+            [{"enterprise_number": "0412345678", "status": "AC"}],
+        )
+        with zipfile.ZipFile(zip_path, "a") as zf:
+            zf.writestr(
+                "activity.csv",
+                "EntityNumber,NaceCode\n0412345678,47110\n",
+            )
+
+        reader = KboZipReader()
+        record = reader.build_index(zip_path, {"0412345678"})["0412345678"]
+
+        assert record.status == "AC"
+        assert record.activity_codes == set()
+
+    def test_build_index_reuses_identical_lookup(self, tmp_path, monkeypatch):
+        zip_path = _build_kbo_zip(
+            tmp_path,
+            [{"enterprise_number": "0412345678", "status": "AC"}],
+        )
+        reader = KboZipReader()
+        original_read_csv = reader._read_csv
+        calls = []
+
+        def tracking_read_csv(zf, member):
+            calls.append(member)
+            yield from original_read_csv(zf, member)
+
+        monkeypatch.setattr(reader, "_read_csv", tracking_read_csv)
+        first = reader.build_index(zip_path, {"0412345678"})
+        second = reader.build_index(zip_path, {"0412345678"})
+
+        assert first["0412345678"].denomination == second["0412345678"].denomination
+        assert calls.count("enterprise.csv") == 1

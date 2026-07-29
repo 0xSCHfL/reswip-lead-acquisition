@@ -18,9 +18,13 @@ Source database (iQualif or another provider)
         ↓
 Normalize company fields
         ↓
-Verify company with TVA/KBO
+Pappers: first/last name and position
         ↓
-Enrich director or manager when publicly verifiable
+KBO ZIP: official verification, status, identity, and contacts
+        ↓
+KBO Web: fill remaining director/contact fields
+        ↓
+Infobel: targeted fallback for remaining missing fields
         ↓
 Deduplicate companies
         ↓
@@ -31,10 +35,8 @@ Export to Zoho CRM
 Prospecting calls and campaign reporting
 ```
 
-The TVA number is the primary company key. First Name, Last Name, and Position
-are optional because iQualif generally provides company data, not a reliable
-decision-maker identity. Missing names must remain empty rather than being
-invented.
+The TVA number is the primary company key. Existing non-empty values are never
+overwritten. Missing values remain empty when no reliable source provides them.
 
 ## First Use Case: Energy
 
@@ -43,12 +45,32 @@ selects an iQualif category, region, language, CRM organization, and lead
 source. The resulting database can be imported into Zoho and used for energy
 prospecting calls.
 
-## Enrich First Name, Last Name, and Position
+## Enrichment Order and Source Authority
 
-The decision-maker enrichment uses the Belgian TVA number as the lookup key.
-KBO web is the official source; Pappers is used as a fallback when KBO does
-not expose a usable function holder. Existing values are never overwritten, and
-missing values remain empty when neither source returns reliable evidence.
+The pipeline uses the Belgian TVA number as the lookup key and enriches each
+row according to its missing fields:
+
+1. **Pappers** — preferred source for first name, last name, and position.
+2. **KBO ZIP** — official offline verification, legal status, identity, address,
+   activities, and any available company email/phone/website.
+3. **KBO Web** — fills missing decision-maker and contact details.
+4. **Infobel** — fallback verification/enrichment only for rows still missing
+   email, phone, or website.
+
+Pappers has priority for person identity. If Pappers and Infobel disagree,
+the Pappers name is retained; Infobel can only fill blank fields. KBO is the
+authority for company identity and legal status. The original iQualif database
+is read-only: enrichment is written to a separate output file.
+
+For multiple Infobel results, do not blindly select the first result. Match in
+this order:
+
+`exact TVA + exact normalized address` → `TVA + postcode` → `TVA + company name`
+
+An address match is confirmed only after normalizing case, accents,
+punctuation, and common street abbreviations. If candidates remain tied, mark
+the result `infobel_ambiguous`; if no candidate matches, mark it
+`infobel_no_result`.
 
 From the repository root, set the source and output paths and run:
 
@@ -94,10 +116,10 @@ python3 -m reswip_leads.pipeline \
 
 The pipeline also classifies Province/Region into Language and DB Region,
 deduplicates by normalized TVA, and preserves the original input columns.
-Review the output before CRM import. Pappers-only matches should be treated as
-medium confidence; do not invent a name or position from a company name.
+Review the output before CRM import. Do not invent a name or position from a
+company name.
 
-### Download and use a KBO bulk ZIP (optional)
+### Download and use a KBO bulk ZIP
 
 The official bulk ZIP can be downloaded when a direct URL or URL template is
 configured:
@@ -118,6 +140,10 @@ python3 -m reswip_leads.pipeline \
   --output /path/to/enriched.csv \
   --enricher both
 ```
+
+For batches, the ZIP is indexed once per pipeline run. The large activity file
+is skipped unless NACE activity data is explicitly requested. This avoids
+network requests for basic company verification and status.
 
 ### Recheck missing emails only
 
@@ -186,7 +212,9 @@ Databases/<Sector>/Belgium/<Region>/
 
 ## Infobel Scraping (reCAPTCHA Auto-Solve)
 
-Scrapes [Infobel Belgium](https://www.infobel.com/fr/belgium/) business details — name, address, TVA, phone, email, hours, financial data — by searching sector + region.
+Scrapes [Infobel Belgium](https://www.infobel.com/fr/belgium/) business details —
+name, address, TVA, phone, email, hours, and financial data — by searching the
+TVA when a row is incomplete.
 
 ### Setup
 
@@ -213,6 +241,13 @@ python -m reswip_leads.sources.infobel.scrape_urls links.csv
 # Or run both in one command
 python -m reswip_leads.sources.infobel.pipeline "Restaurant" "Liège" -o results.csv
 
+# Search by TVA from a CSV
+python -m reswip_leads.sources.infobel.pipeline \
+  --input-csv /path/to/incomplete_tvas.csv \
+  -o /path/to/infobel_results.csv \
+  --headed \
+  --profile-dir ~/.infobel-profile
+
 # Headless (no display needed — works on any Linux VPS)
 python -m reswip_leads.sources.infobel.collect_links "Restaurant" "Liège" -o links.csv --no-headed
 ```
@@ -232,9 +267,40 @@ Infobel uses Cloudflare JS challenges + Google reCAPTCHA v2. The solver:
 
 No Capsolver, no Gemini, no API keys. Requires `ffmpeg` on the system and an internet connection for Google Speech Recognition.
 
+### Browser and abuse-page flow
+
+The TVA fallback uses one Chromium context with two reusable tabs:
+
+```text
+Search tab → search TVA → find detail link
+Detail tab → open link → scrape company
+Search tab → next TVA
+```
+
+When an abuse page appears, the solver runs for that TVA. After the challenge
+is cleared, the scraper waits for the detail link. If no matching link appears,
+that TVA is recorded as `infobel_no_result`; it is not blindly retried.
+
+For pilot runs, use the isolated runner. It writes the input, enriched CSV,
+summary, and (for new runs) `run.log` under the output directory:
+
+```bash
+PYTHONPATH=src python3 scripts/run_hainaut_three_row_pilot.py \
+  --source "/path/to/hainaut_iqualif.csv" \
+  --output-dir /tmp/reswip-hainaut-10-row-pilot \
+  --kbo-zip data/kbo/KboOpenData_YYYY_MM_DD_Full.zip \
+  --profile-dir ~/.infobel-profile \
+  --limit 10
+```
+
+Do not start the full 1,000-row live run until checkpoint/resume output is in
+place. A timeout or browser interruption must not discard completed Infobel
+results.
+
 ## Development Status
 
-The repository foundation is created. The next implementation milestone is a
-shared canonical `Lead` schema, profile loading, CSV normalization, and tests.
-The existing insurance project remains separate and is not modified by this
-repository.
+The staged enrichment pipeline, KBO ZIP verification, Infobel TVA fallback,
+two-tab browser flow, pilot runner, and focused regression tests are in place.
+The next milestone is resumable checkpoint processing for the full 1,000-row
+database. The original insurance project remains separate and is not modified
+by this repository.

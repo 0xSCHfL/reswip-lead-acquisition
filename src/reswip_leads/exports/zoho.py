@@ -41,13 +41,16 @@ ZOHO_COLUMNS = [
     "Category",
     "Organization",
     "Lead Source",
+    "Status",
     "KBO Status",
 ]
 
 
 def _is_active_kbo_status(value: str) -> bool:
     """Return whether a KBO status represents an active company."""
-    return (value or "").strip().casefold() in {"ac", "active", "actif", "actief"}
+    return (value or "").strip().casefold() in {
+        "ac", "active", "actif", "actief", "verified"
+    }
 
 
 def _filter_active_if_verified(leads: List[Lead]) -> List[Lead]:
@@ -91,6 +94,7 @@ def _generic_lead_to_row(lead: Lead, profile: Optional[Profile] = None) -> dict[
         "Category": lead.category or "",
         "Organization": org,
         "Lead Source": source,
+        "Status": lead.status or "",
         "KBO Status": lead.kbo_status or "",
     }
 

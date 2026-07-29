@@ -283,6 +283,7 @@ class TestZohoExport:
         assert "TVA Number" in header
         assert "Organization" in header
         assert "Lead Source" in header
+        assert "Status" in header
 
     def test_profile_defaults_in_crm(self, energy_profile_path, sample_csv, output_dir):
         config = PipelineConfig(
@@ -586,6 +587,22 @@ class _FakeEnricher:
         return self.result or {}
 
 
+class _FakeInfobelEnricher:
+    SOURCE_NAME = "infobel"
+
+    def __init__(self, results: Optional[Dict[str, Dict[str, Any]]] = None) -> None:
+        self.results = results or {}
+        self.batch_calls: List[List[str]] = []
+        self.calls: List[str] = []
+
+    def enrich_batch(self, leads: List[Lead]) -> None:
+        self.batch_calls.append([lead.tva for lead in leads])
+
+    def enrich(self, tva: str, company_name: str = "") -> Dict[str, Any]:
+        self.calls.append(tva)
+        return self.results.get(tva, {})
+
+
 # ── LeadPipeline fixtures ──────────────────────────────────────────
 
 
@@ -803,6 +820,118 @@ class TestLeadPipelineVerifyStage:
 
 
 class TestLeadPipelineEnrichStage:
+    def test_pappers_then_kbo_then_infobel_fallback(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789")
+        events: List[str] = []
+
+        class _RecordingEnricher(_FakeEnricher):
+            def __init__(self, event: str, result: Dict[str, Any]) -> None:
+                super().__init__(result=result, source_name=event)
+                self.event = event
+
+            def enrich(self, *args: Any) -> Dict[str, Any]:
+                events.append(self.event)
+                return super().enrich(*args)
+
+        class _RecordingInfobel(_FakeInfobelEnricher):
+            def enrich_batch(self, leads: List[Lead]) -> None:
+                events.append("infobel_batch")
+                super().enrich_batch(leads)
+
+            def enrich(self, tva: str, company_name: str = "") -> Dict[str, Any]:
+                events.append("infobel")
+                return super().enrich(tva, company_name)
+
+        pappers = _RecordingEnricher(
+            "pappers",
+            {"first_name": "PappersFirst", "position": "Director"},
+        )
+        kbo = _RecordingEnricher(
+            "kbo_web",
+            {
+                "email": "kbo@example.test",
+                "company_status": "AC",
+                "kbo_status": "AC",
+            },
+        )
+        infobel = _RecordingInfobel(
+            {"BE0123456789": {"phone": "infobel-phone"}}
+        )
+
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            pappers=pappers,
+            kbo_web=kbo,
+            infobel=infobel,  # type: ignore[arg-type]
+        ).run()
+
+        assert result.success
+        assert events == ["pappers", "kbo_web", "infobel_batch", "infobel"]
+        assert lead.first_name == "PappersFirst"
+        assert lead.position == "Director"
+        assert lead.email == "kbo@example.test"
+        assert lead.phone == "infobel-phone"
+        assert lead.status == "AC"
+        assert lead.kbo_status == "AC"
+
+    def test_infobel_only_receives_incomplete_contact_leads(
+        self, tmp_path, energy_profile: Profile
+    ):
+        incomplete = Lead(company_name="Incomplete", tva="0123456789")
+        complete = Lead(
+            company_name="Complete",
+            tva="0415678901",
+            email="complete@example.test",
+            phone="+3212345678",
+            website="https://complete.test",
+        )
+        infobel = _FakeInfobelEnricher()
+
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([incomplete, complete]),  # type: ignore[arg-type]
+            infobel=infobel,  # type: ignore[arg-type]
+        ).run()
+
+        assert infobel.batch_calls == [["BE0123456789"]]
+        assert infobel.calls == ["BE0123456789"]
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["infobel_candidates"] == 1
+
+    def test_kbo_status_is_merged_without_overwriting_contact_fields(
+        self, tmp_path, energy_profile: Profile
+    ):
+        lead = Lead(company_name="Acme", tva="0123456789", email="existing@example.test")
+        kbo = _FakeEnricher(
+            {
+                "email": "kbo@example.test",
+                "phone": "+3212345678",
+                "company_status": "AC",
+                "kbo_status": "AC",
+            },
+            source_name="kbo_web",
+        )
+
+        LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([lead]),  # type: ignore[arg-type]
+            kbo_web=kbo,
+        ).run()
+
+        assert lead.email == "existing@example.test"
+        assert lead.phone == "+3212345678"
+        assert lead.status == "AC"
+        assert lead.kbo_status == "AC"
+
     def test_pappers_fills_empty_fields(
         self, tmp_path, energy_profile: Profile
     ):

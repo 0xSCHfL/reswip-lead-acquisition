@@ -394,6 +394,24 @@ def _collect_links_from_page(page) -> list[str]:
     return urls
 
 
+def _wait_for_detail_links(page, timeout_ms: int = 20_000) -> bool:
+    """Wait for result cards to render after a challenge or navigation."""
+    try:
+        page.wait_for_function(
+            """() => document.querySelectorAll('a[href*="businessdetails"]').length > 0""",
+            timeout=timeout_ms,
+        )
+        return True
+    except Exception:
+        log.warning(
+            "no Infobel detail links after %dms; url=%s title=%r",
+            timeout_ms,
+            page.url,
+            page.title() if hasattr(page, "title") else "",
+        )
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -563,6 +581,103 @@ def collect_links(
                 context.close()
             except Exception:
                 pass
+
+
+def collect_tva_links(
+    tvas: list[str],
+    *,
+    headed: bool = True,
+    profile_dir: str = "~/.infobel-scrape-profile",
+) -> list[dict[str, str]]:
+    """Search several TVAs in one persistent Chromium context."""
+    from playwright.sync_api import sync_playwright
+    from .scrape_urls import scrape_tab
+
+    resolved_profile = Path(profile_dir).expanduser()
+    resolved_profile.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, str]] = []
+
+    with sync_playwright() as pw:
+        context = pw.chromium.launch_persistent_context(
+            user_data_dir=str(resolved_profile),
+            headless=not headed,
+            executable_path=_EXECUTABLE,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
+            viewport={"width": 1280, "height": 900},
+            locale="fr-BE",
+            timezone_id="Europe/Brussels",
+        )
+        try:
+            page = context.pages[0] if context.pages else context.new_page()
+            detail_page = context.new_page()
+            for index, tva in enumerate(tvas, 1):
+                log.info("[%d/%d] searching Infobel by TVA %s", index, len(tvas), tva)
+                try:
+                    page.goto(_INFOBEL_HOME, wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_timeout(3_000)
+                    if not _wait_for_challenge(page, headed):
+                        continue
+                    _fill_search_form(page, tva, "")
+                    try:
+                        page.wait_for_url("**/BusinessResults**", timeout=30_000)
+                    except Exception:
+                        if "/Landing/Abuse" in page.url:
+                            log.warning("abuse redirect for TVA %s", tva)
+                            if not headed or not _wait_for_challenge(page, headed):
+                                rows.append(
+                                    {
+                                        "search_tva": tva,
+                                        "infobel_status": "no_result",
+                                    }
+                                )
+                                continue
+                        else:
+                            rows.append(
+                                {
+                                    "search_tva": tva,
+                                    "infobel_status": "no_result",
+                                }
+                            )
+                            continue
+                    page.wait_for_timeout(3_000)
+                    if not _wait_for_challenge(page, headed):
+                        rows.append(
+                            {"search_tva": tva, "infobel_status": "no_result"}
+                        )
+                        continue
+                    _wait_for_detail_links(page)
+                    detail_urls = _collect_links_from_page(page)
+                    if detail_urls:
+                        detail_url = detail_urls[0]
+                        data = scrape_tab(detail_page, detail_url, headed=headed)
+                        rows.append(
+                            {
+                                "search_tva": tva,
+                                "infobel_url": detail_url,
+                                **data,
+                                "infobel_status": "scraped",
+                            }
+                        )
+                    else:
+                        rows.append(
+                            {"search_tva": tva, "infobel_status": "no_result"}
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("TVA search failed for %s: %s", tva, exc)
+                    rows.append(
+                        {"search_tva": tva, "infobel_status": "no_result"}
+                    )
+        finally:
+            try:
+                context.close()
+            except Exception:
+                pass
+
+    return rows
 
 
 # ---------------------------------------------------------------------------

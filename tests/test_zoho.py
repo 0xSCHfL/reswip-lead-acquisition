@@ -18,7 +18,7 @@ from reswip_leads.exports.zoho import (
 
 class TestZohoColumnOrder:
     def test_column_count(self):
-        assert len(ZOHO_COLUMNS) == 22
+        assert len(ZOHO_COLUMNS) == 23
 
     def test_expected_columns(self):
         expected = [
@@ -43,6 +43,7 @@ class TestZohoColumnOrder:
             "Category",
             "Organization",
             "Lead Source",
+            "Status",
             "KBO Status",
         ]
         assert ZOHO_COLUMNS == expected
@@ -411,6 +412,16 @@ class TestEnergyProfileDefaults:
 
 
 class TestActiveKboExport:
+    def test_generic_export_keeps_verified_records(self, tmp_path):
+        leads = [
+            Lead(company_name="Verified", tva="0123456789", kbo_status="verified"),
+        ]
+        out = tmp_path / "out.csv"
+        export_csv(leads, str(out))
+        with open(out, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert [row["Business Name"] for row in rows] == ["Verified"]
+
     def test_generic_export_keeps_only_active_when_status_is_present(self, tmp_path):
         leads = [
             Lead(company_name="Active", tva="0123456789", kbo_status="AC"),

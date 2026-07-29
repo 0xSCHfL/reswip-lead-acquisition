@@ -42,11 +42,15 @@ class KboZipReader:
     LANGUAGE_PRIORITY = {"FR": 0, "NL": 1, "DE": 2, "EN": 3}
     ADDRESS_TYPE_PRIORITY = {"REGO": 0, "LEGAL": 1, "MAIN": 2, "HEAD": 3}
 
+    def __init__(self) -> None:
+        self._index_cache: Dict[tuple, Dict[str, KboRecord]] = {}
+
     def build_index(
         self,
         zip_path: str,
         targets: Set[str],
         activity_code: str = "",
+        include_activity: bool = False,
     ) -> Dict[str, KboRecord]:
         """Build an enterprise-number-indexed dict from a KBO ZIP file.
 
@@ -54,21 +58,40 @@ class KboZipReader:
             zip_path: Path to the KBO Open Data ZIP.
             targets: Set of enterprise numbers (digits only) to look up.
             activity_code: Optional NACE code to flag ``has_activity``.
+            include_activity: Read the large activity file and return NACE
+                codes. Defaults to ``False`` for contact/status enrichment.
 
         Returns:
             Dict mapping enterprise_number → :class:`KboRecord`.
         """
-        records: Dict[str, KboRecord] = {}
+        normalized_targets = {_normalize_code(target) for target in targets}
+        normalized_targets.discard("")
         activity_code = _normalize_code(activity_code)
+        include_activity = include_activity or bool(activity_code)
+        path = Path(zip_path).expanduser().resolve()
+        stat = path.stat()
+        cache_key = (
+            str(path),
+            stat.st_mtime_ns,
+            stat.st_size,
+            frozenset(normalized_targets),
+            activity_code,
+            include_activity,
+        )
+        cached = self._index_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        records: Dict[str, KboRecord] = {}
         found: Set[str] = set()
 
-        with zipfile.ZipFile(zip_path, "r") as zf:
+        with zipfile.ZipFile(path, "r") as zf:
             members = set(zf.namelist())
 
             if "enterprise.csv" in members:
                 for row in self._read_csv(zf, "enterprise.csv"):
                     ent = _normalize_code(row.get("EnterpriseNumber", ""))
-                    if ent not in targets:
+                    if ent not in normalized_targets:
                         continue
                     record = records.setdefault(ent, KboRecord(ent))
                     found.add(ent)
@@ -134,7 +157,7 @@ class KboZipReader:
                     elif contact_type in {"WEB", "WEBSITE"} and not record.website:
                         record.website = value
 
-            if "activity.csv" in members:
+            if include_activity and "activity.csv" in members:
                 for row in self._read_csv(zf, "activity.csv"):
                     ent = _normalize_code(row.get("EntityNumber", ""))
                     if ent not in found:
@@ -147,6 +170,7 @@ class KboZipReader:
                     if activity_code and code == activity_code:
                         record.has_activity = True
 
+        self._index_cache[cache_key] = records
         return records
 
     def _read_csv(self, zf: zipfile.ZipFile, member: str) -> Iterable[Dict[str, str]]:

@@ -90,7 +90,15 @@ class IQualifImporter:
         leads: List[Lead] = []
         for row in self._open_rows(path):
             tva = normalize_tva(
-                _pick(row, "VAT Number", "vat_number", "enterprise_number", "Number")
+                _pick(
+                    row,
+                    "VAT Number",
+                    "TVA Number",
+                    "vat_number",
+                    "tva_number",
+                    "enterprise_number",
+                    "Number",
+                )
             )
             name = _pick(row, "Company Name", "Name", "Business Name", "Enterprise Name")
             if not name:
@@ -108,6 +116,7 @@ class IQualifImporter:
                     phone=_pick(row, "Phone", "Telephone", "Office Phone"),
                     mobile=_pick(row, "Mobile", "Mobile Phone"),
                     category=_pick(row, "Category", "category", "Sector", "Industry"),
+                    status=_pick(row, "State", "Status", "status"),
                     source="iQualif",
                 )
             )

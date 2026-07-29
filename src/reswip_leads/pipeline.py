@@ -378,6 +378,7 @@ class LeadPipeline:
         kbo_verifier: Optional[Any] = None,
         pappers: Optional[Any] = None,
         kbo_web: Optional[Any] = None,
+        infobel: Optional[Any] = None,
         email_recheck: Optional[Any] = None,
         importer: Optional[IQualifImporter] = None,
         progress: Optional[Callable[[str, int, int], None]] = None,
@@ -398,6 +399,7 @@ class LeadPipeline:
         self.kbo_verifier = kbo_verifier
         self.pappers = pappers
         self.kbo_web = kbo_web
+        self.infobel = infobel
         self.email_recheck = email_recheck
 
         self.progress = progress
@@ -547,10 +549,13 @@ class LeadPipeline:
         pappers_enriched = 0
         kbo_enriched = 0
         email_recheck_enriched = 0
+        infobel_enriched = 0
+        infobel_candidates = 0
         no_match = 0
         first_names_found = 0
         last_names_found = 0
         emails_found = 0
+        enriched_tvas: set[str] = set()
         for lead in leads:
             if not lead.tva:
                 continue
@@ -590,8 +595,8 @@ class LeadPipeline:
                     metrics.errors.append(
                         f"email recheck failed for {lead.tva}: {exc}"
                     )
-            if not lead_enriched and lead.tva:
-                no_match += 1
+            if lead_enriched and lead.tva:
+                enriched_tvas.add(lead.tva)
             if lead.first_name:
                 first_names_found += 1
             if lead.last_name:
@@ -599,12 +604,35 @@ class LeadPipeline:
             if lead.email:
                 emails_found += 1
 
-        total_enriched = pappers_enriched + kbo_enriched
+        # Infobel is a batch fallback because its browser session is expensive.
+        # Only leads with at least one missing contact field are sent to it.
+        if self.infobel is not None:
+            infobel_leads = [
+                lead
+                for lead in leads
+                if lead.tva and not (lead.email and lead.phone and lead.website)
+            ]
+            infobel_candidates = len(infobel_leads)
+            try:
+                self.infobel.enrich_batch(infobel_leads)
+                for lead in infobel_leads:
+                    if self._apply_enrichment(lead, self.infobel):
+                        infobel_enriched += 1
+                        enriched_tvas.add(lead.tva)
+            except Exception as exc:  # noqa: BLE001
+                metrics.errors.append(f"Infobel batch failed: {exc}")
+
+        no_match = sum(
+            1 for lead in leads if lead.tva and lead.tva not in enriched_tvas
+        )
+        total_enriched = pappers_enriched + kbo_enriched + infobel_enriched
         metrics.notes.update(
             {
                 "enriched_count": total_enriched,
                 "pappers_enriched": pappers_enriched,
                 "kbo_enriched": kbo_enriched,
+                "infobel_enriched": infobel_enriched,
+                "infobel_candidates": infobel_candidates,
                 "email_recheck_enriched": email_recheck_enriched,
                 "no_match": no_match,
                 "first_names_found": first_names_found,
@@ -658,6 +686,20 @@ class LeadPipeline:
             return False
 
         changed = False
+        source_name = getattr(enricher, "SOURCE_NAME", "")
+
+        # KBO is the authoritative source for company status. Other
+        # enrichers may return their own operation status, but that must not
+        # be confused with the legal company status.
+        if source_name == "kbo_web":
+            for src_key, dest_attr in (
+                ("company_status", "status"),
+                ("kbo_status", "kbo_status"),
+            ):
+                value = result.get(src_key)
+                if value and self._fill_if_empty(lead, dest_attr, str(value)):
+                    changed = True
+
         # Direct attribute mappings.
         for src_key, dest_attr in (
             ("first_name", "first_name"),

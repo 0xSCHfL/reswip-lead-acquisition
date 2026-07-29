@@ -58,7 +58,17 @@ _PHONE_RE = re.compile(
 _HREF_RE = re.compile(r'href="(https?://[^"]+)"')
 
 # Domains to exclude when extracting the company website from page links.
-_EXCLUDED_WEBSITE_DOMAINS = ("pappers", "google", "facebook", "twitter", "linkedin")
+_EXCLUDED_WEBSITE_DOMAINS = (
+    "pappers",
+    "google",
+    "facebook",
+    "twitter",
+    "linkedin",
+    "ejustice.just.fgov.be",
+    "economie.fgov.be",
+    "belgium.be",
+    "kruispuntbank.be",
+)
 
 
 def slugify(name: str) -> str:
