@@ -11,6 +11,66 @@ This project is intentionally sector-neutral. Insurance is one module; Energy
 is the first active use case. New sectors should be added through profiles and
 small adapters, not by rewriting the core pipeline.
 
+## Operator Handoff: Hainaut Energy Database
+
+This is the quickest way for a new operator to run and inspect the current
+workflow. It reads the iQualif source without modifying it and writes all
+artifacts to a separate output directory.
+
+```bash
+cd /home/sohaib/Work/projects/myP/Reswip-lead-acquisition
+export PYTHONPATH=src
+
+python3 scripts/run_hainaut_three_row_pilot.py \
+  --source "/home/sohaib/GoogleDrive/gdrive/Databases/Energie/Belgium/Wallonie/Hainaut/iQUALIF-1000-No-Groups/hainaut_iqualif_1000_no_groups (Copy).csv" \
+  --output-dir /tmp/reswip-hainaut-pilot-10 \
+  --profile-dir ~/.infobel-profile \
+  --kbo-zip data/kbo/KboOpenData_0433_2026_07_27_Full.zip \
+  --limit 10
+```
+
+The `--limit` value controls how many valid TVA rows are selected. Start with
+10 or 20. The output directory contains:
+
+| File | Purpose |
+| --- | --- |
+| `hainaut_three_row_input.csv` | Isolated copy of selected source rows |
+| `hainaut_three_row_enriched.csv` | Enriched CRM-style output |
+| `hainaut_three_row_summary.json` | Stage metrics and row-level results |
+| `run.log` | Pipeline, browser, CAPTCHA, and Infobel subprocess logs |
+
+Review the JSON summary and CSV before increasing the limit. The original
+Google Drive CSV must remain unchanged. The current implementation is tested
+through the pilot workflow, but checkpoint/resume support must be added before
+processing all 1,000 rows in one production run.
+
+### What happens to each row
+
+```text
+iQualif row
+  → Pappers: first name, last name, position
+  → KBO ZIP: official identity, status, address, available contacts
+  → KBO Web: missing person/contact fields
+  → Infobel: only if email, phone, or website is still missing
+  → deduplicate by normalized TVA
+  → export separate CSV
+```
+
+Existing values are never overwritten. If Infobel finds an email, it is added
+to the enriched output Lead/CSV, not written back into the original iQualif
+database. Pappers has priority for person names and positions; Infobel cannot
+replace a non-empty Pappers name.
+
+### How to read the result
+
+- `Status` is the source/company status; `KBO Status` is KBO verification data.
+- `infobel_no_result` means Infobel was checked but no reliable matching link
+  was found; this status is recorded in the Infobel batch output/log.
+- `infobel_ambiguous` means multiple candidates remained after TVA/address/
+  postcode matching and the row needs review.
+- Duplicate TVA rows are reduced during the deduplication stage; inspect the
+  `duplicate_tv_as` value in the summary before CRM import.
+
 ## What the Platform Does
 
 ```text
