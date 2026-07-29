@@ -26,6 +26,7 @@ from reswip_leads.sources.infobel.scraper import (  # noqa: E402
     _token_summary,
     _validate_results_url,
 )
+from reswip_leads.sources.infobel.scrape_urls import _page_cleared, _wait_for_human  # noqa: E402
 
 
 def test_parse_financial_page_text_extracts_company_fields():
@@ -615,3 +616,89 @@ class TestFinancialLinkExtraction:
         )
         assert url == "https://www.infobel.com/fr/belgium/financial/other"
         assert tva == ""
+
+
+# ── Page-cleared helper and wait_for_human ─────────────────────────
+
+
+class TestPageCleared:
+    def test_returns_false_on_abuse_url(self):
+        page = MagicMock()
+        page.url = "https://www.infobel.com/fr/Landing/Abuse"
+        assert _page_cleared(page) is False
+
+    def test_returns_false_on_challenge_html(self):
+        page = MagicMock()
+        page.url = "https://www.infobel.com/fr/belgium/some-page"
+        page.content.return_value = (
+            '<html><div id="challenge-running">Checking your browser</div></html>'
+        )
+        assert _page_cleared(page) is False
+
+    def test_returns_true_on_normal_page(self):
+        page = MagicMock()
+        page.url = "https://www.infobel.com/fr/belgium/some-company"
+        page.content.return_value = "<html><h1>Pizza Place</h1></html>"
+        assert _page_cleared(page) is True
+
+    def test_returns_false_on_exception(self):
+        page = MagicMock()
+        page.url = "https://www.infobel.com/fr/belgium/some-page"
+        page.content.side_effect = RuntimeError("connection lost")
+        assert _page_cleared(page) is False
+
+
+class TestWaitForHuman:
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_solve_recaptcha")
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_click_turnstile")
+    def test_returns_true_when_recaptcha_solves_and_page_clears(
+        self, mock_turnstile, mock_recaptcha
+    ):
+        page = MagicMock()
+        page.url = "https://www.infobel.com/fr/belgium/company"
+        page.content.return_value = "<html>OK</html>"
+        mock_recaptcha.return_value = True
+
+        assert _wait_for_human(page, "abuse redirect") is True
+
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_solve_recaptcha")
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_click_turnstile")
+    def test_returns_true_when_turnstile_click_clears_page(
+        self, mock_turnstile, mock_recaptcha
+    ):
+        page = MagicMock()
+        mock_recaptcha.return_value = False
+        mock_turnstile.return_value = True
+        page.url = "https://www.infobel.com/fr/belgium/company"
+        page.content.return_value = "<html>OK</html>"
+
+        assert _wait_for_human(page, "abuse redirect") is True
+
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_solve_recaptcha")
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_click_turnstile")
+    def test_returns_false_when_both_fail_and_page_still_blocked(
+        self, mock_turnstile, mock_recaptcha
+    ):
+        page = MagicMock()
+        mock_recaptcha.return_value = False
+        mock_turnstile.return_value = False
+        page.url = "https://www.infobel.com/fr/Landing/Abuse"
+
+        assert _wait_for_human(page, "abuse redirect") is False
+
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_solve_recaptcha")
+    @patch("reswip_leads.sources.infobel.scrape_urls._try_click_turnstile")
+    def test_returns_false_when_turnstile_clicked_but_page_still_blocked(
+        self, mock_turnstile, mock_recaptcha
+    ):
+        page = MagicMock()
+        mock_recaptcha.return_value = False
+        mock_turnstile.return_value = True
+        page.url = "https://www.infobel.com/fr/Landing/Abuse"
+        page.content.return_value = (
+            '<html><div id="challenge-running">Checking your browser</div></html>'
+        )
+        page.wait_for_function.side_effect = TimeoutError
+
+        result = _wait_for_human(page, "abuse redirect")
+        assert result is False
