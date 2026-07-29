@@ -152,7 +152,7 @@ def solve_recaptcha_v2_sync(page, timeout_ms: int = 120_000) -> bool:
                 audio_url = bframe.evaluate("""() => {
                     const el = document.querySelector('audio#audio-source');
                     return el ? (el.src || null) : null;
-                }""")
+                }""", timeout=10_000)
             except Exception:
                 log.info("bframe gone, page may have navigated")
                 return "/Landing/Abuse" not in (page.url or "")
@@ -161,14 +161,14 @@ def solve_recaptcha_v2_sync(page, timeout_ms: int = 120_000) -> bool:
                 log.warning("no audio URL, reloading")
                 try:
                     reload_btn = bframe.locator("#recaptcha-reload-button")
-                    if reload_btn.is_visible():
+                    if reload_btn.is_visible(timeout=3_000):
                         reload_btn.click()
                         page.wait_for_timeout(3_000)
                 except Exception:
                     pass
                 try:
                     play_btn = bframe.locator(".rc-audiochallenge-play-button > button")
-                    play_btn.click()
+                    play_btn.click(timeout=3_000)
                     page.wait_for_timeout(2_000)
                 except Exception:
                     pass

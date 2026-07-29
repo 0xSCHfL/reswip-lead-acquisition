@@ -254,13 +254,13 @@ def _parse_financial_page_text(text: str) -> dict[str, str]:
 
 def _is_challenge_page(page) -> bool:
     url = page.url or ""
-    if "__cf_chl" in url or "challenge" in url.lower():
+    if "__cf_chl" in url:
         return True
     try:
         title = page.title() or ""
     except Exception:
         title = ""
-    if "just a moment" in title.lower() or "checking" in title.lower():
+    if "just a moment" in title.lower():
         return True
     try:
         html = page.content(timeout=5_000)
@@ -382,6 +382,21 @@ def _try_click_turnstile(page) -> bool:
     return False
 
 
+def _page_cleared(page) -> bool:
+    """Quick check if the page is no longer on abuse/challenge."""
+    try:
+        url = page.url or ""
+        if "/Landing/Abuse" in url:
+            return False
+        html = page.content(timeout=5_000).lower()
+        markers = ("challenge-running", "challenge-form",
+                   "just a moment", "checking your browser",
+                   "verify you are human", "security verification")
+        return not any(m in html for m in markers)
+    except Exception:
+        return False
+
+
 def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
     """In headed mode: try solving reCAPTCHA, then wait for page to change.
     Returns True if the page navigated away from the problem."""
@@ -391,50 +406,38 @@ def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
     # Try full reCAPTCHA solve first (audio challenge)
     if _try_solve_recaptcha(page):
         page.wait_for_timeout(5_000)
-        # Check if page cleared
+        if _page_cleared(page):
+            return True
+
+    # Fallback: just click checkbox
+    clicked = _try_click_turnstile(page)
+    if clicked:
+        page.wait_for_timeout(5_000)
+        if _page_cleared(page):
+            return True
+        # Give it a brief chance if checkbox was actually clicked
         try:
             page.wait_for_function(
                 """() => {
                     const url = window.location.href;
                     const html = document.documentElement.innerHTML.toLowerCase();
-                    return !url.includes('Landing/Abuse')
-                        && !html.includes('challenge-running')
-                        && !html.includes('challenge-form')
-                        && !html.includes('just a moment')
-                        && !html.includes('checking your browser')
-                        && !html.includes('verify you are human')
-                        && !html.includes('security verification');
+                    const onAbuse = url.includes('Landing/Abuse');
+                    const onChallenge = html.includes('challenge-running')
+                        || html.includes('challenge-form')
+                        || html.includes('just a moment')
+                        || html.includes('checking your browser')
+                        || html.includes('verify you are human')
+                        || html.includes('security verification');
+                    return !onAbuse && !onChallenge;
                 }""",
-                timeout=15_000,
+                timeout=30_000,
             )
             return True
         except Exception:
             pass
 
-    # Fallback: just click checkbox
-    _try_click_turnstile(page)
-    page.wait_for_timeout(5_000)
-
-    try:
-        # Poll every 2s: check if URL or content changed
-        page.wait_for_function(
-            """() => {
-                const url = window.location.href;
-                const html = document.documentElement.innerHTML.toLowerCase();
-                const onAbuse = url.includes('Landing/Abuse');
-                const onChallenge = html.includes('challenge-running')
-                    || html.includes('challenge-form')
-                    || html.includes('just a moment')
-                    || html.includes('checking your browser')
-                    || html.includes('verify you are human')
-                    || html.includes('security verification');
-                return !onAbuse && !onChallenge;
-            }""",
-            timeout=timeout_ms,
-        )
-        return True
-    except Exception:
-        return False
+    log.warning("captcha auto-solve failed — skipping URL")
+    return False
 
 
 def _dismiss_consent(page) -> None:
