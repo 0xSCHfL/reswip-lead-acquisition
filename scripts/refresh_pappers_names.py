@@ -40,11 +40,15 @@ def run(input_path: Path, output_path: Path, log_path: Path, missing_only: bool 
         "manager", "président", "présidente", "zaakvoerder",
     }
 
-    for index, row in enumerate(rows, 1):
+    pending = [
+        (index, row)
+        for index, row in enumerate(rows)
+        if not missing_only
+        or not all((row.get(key) or '').strip() for key in ('First Name', 'Last Name', 'Position'))
+    ]
+    for completed, (index, row) in enumerate(pending, 1):
         tva = re.sub(r"\D", "", row.get(tva_key, "") or "")
         if not tva:
-            continue
-        if missing_only and all((row.get(key) or '').strip() for key in ('First Name', 'Last Name', 'Position')):
             continue
         if (row.get("First Name") or "").strip().casefold() in invalid_first_names:
             row["First Name"] = ""
@@ -57,8 +61,8 @@ def run(input_path: Path, output_path: Path, log_path: Path, missing_only: bool 
         position = (result.get("position") or "").strip()
         if position:
             row["Position"] = position
-        if index == 1 or index % 25 == 0 or index == len(rows):
-            log.info("Pappers names progress: completed=%d/%d", index, len(rows))
+        if completed == 1 or completed % 25 == 0 or completed == len(pending):
+            log.info("Pappers names progress: completed=%d/%d", completed, len(pending))
 
         temporary = output_path.with_suffix(output_path.suffix + ".tmp")
         with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
