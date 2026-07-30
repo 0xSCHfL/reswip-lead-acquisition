@@ -18,6 +18,7 @@ import logging
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -39,6 +40,71 @@ _CHALLENGE_MARKERS = (
 
 def _clean(value: str) -> str:
     return " ".join((value or "").split())
+
+
+def _match_text(value: str) -> str:
+    value = unicodedata.normalize("NFKD", value or "")
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
+
+
+def _normalise_tva(value: str) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    return f"BE{digits}" if digits else ""
+
+
+def _candidate_score(candidate: dict[str, str], expected: dict[str, str]) -> int:
+    expected_tva = _normalise_tva(expected.get("tva", ""))
+    candidate_tva = _normalise_tva(
+        candidate.get("financial_tva") or candidate.get("tva", "")
+    )
+    if expected_tva and candidate_tva and expected_tva != candidate_tva:
+        return -1
+
+    score = 0
+    if expected_tva and candidate_tva == expected_tva:
+        score += 100
+
+    expected_name = _match_text(expected.get("company_name", ""))
+    candidate_name = _match_text(candidate.get("business_name", ""))
+    if expected_name and candidate_name == expected_name:
+        score += 100
+    elif expected_name and candidate_name:
+        expected_tokens = set(expected_name.split())
+        candidate_tokens = set(candidate_name.split())
+        score += 40 * len(expected_tokens & candidate_tokens) // max(
+            len(expected_tokens), 1
+        )
+
+    expected_address = _match_text(expected.get("address", ""))
+    candidate_address = _match_text(candidate.get("address", ""))
+    if expected_address and candidate_address:
+        expected_tokens = set(expected_address.split())
+        candidate_tokens = set(candidate_address.split())
+        score += 30 * len(expected_tokens & candidate_tokens) // max(
+            len(expected_tokens), 1
+        )
+
+    if expected.get("postal_code", "").strip() == candidate.get("postal_code", "").strip():
+        score += 25
+    if _match_text(expected.get("city", "")) == _match_text(candidate.get("city", "")):
+        score += 15
+    return score
+
+
+def select_best_candidate(
+    candidates: list[dict[str, str]], expected: dict[str, str]
+) -> dict[str, str] | None:
+    """Select the Infobel result that best matches the FSMA company record."""
+    if not candidates:
+        return None
+    scored = [(_candidate_score(candidate, expected), index, candidate)
+              for index, candidate in enumerate(candidates)]
+    valid = [item for item in scored if item[0] >= 0]
+    if not valid:
+        return None
+    _, _, selected = max(valid, key=lambda item: (item[0], -item[1]))
+    return selected
 
 
 def _is_challenge_page(page) -> bool:
@@ -584,7 +650,7 @@ def collect_links(
 
 
 def collect_tva_links(
-    tvas: list[str],
+    tvas: list[str] | list[dict[str, str]],
     *,
     headed: bool = True,
     profile_dir: str = "~/.infobel-scrape-profile",
@@ -614,7 +680,9 @@ def collect_tva_links(
         try:
             page = context.pages[0] if context.pages else context.new_page()
             detail_page = context.new_page()
-            for index, tva in enumerate(tvas, 1):
+            for index, record in enumerate(tvas, 1):
+                expected = record if isinstance(record, dict) else {"tva": record}
+                tva = expected.get("tva", "")
                 log.info("[%d/%d] searching Infobel by TVA %s", index, len(tvas), tva)
                 try:
                     page.goto(_INFOBEL_HOME, wait_until="domcontentloaded", timeout=30_000)
@@ -652,13 +720,26 @@ def collect_tva_links(
                     _wait_for_detail_links(page)
                     detail_urls = _collect_links_from_page(page)
                     if detail_urls:
-                        detail_url = detail_urls[0]
-                        data = scrape_tab(detail_page, detail_url, headed=headed)
+                        candidates: list[dict[str, str]] = []
+                        for detail_url in detail_urls:
+                            data = scrape_tab(detail_page, detail_url, headed=headed)
+                            candidates.append({
+                                "infobel_url": detail_url,
+                                **data,
+                            })
+                        selected = select_best_candidate(candidates, expected)
+                        if selected is None:
+                            rows.append(
+                                {
+                                    "search_tva": tva,
+                                    "infobel_status": "ambiguous",
+                                }
+                            )
+                            continue
                         rows.append(
                             {
                                 "search_tva": tva,
-                                "infobel_url": detail_url,
-                                **data,
+                                **selected,
                                 "infobel_status": "scraped",
                             }
                         )

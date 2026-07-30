@@ -17,8 +17,8 @@ from pathlib import Path
 log = logging.getLogger("infobel_pipeline")
 
 
-def _read_tva_values(input_csv: str | Path) -> list[str]:
-    """Read normalized digit-only TVAs from comma or semicolon CSV input."""
+def _read_tva_records(input_csv: str | Path) -> list[dict[str, str]]:
+    """Read TVAs and optional FSMA identity fields from CSV input."""
     input_path = Path(input_csv)
     with input_path.open(encoding="utf-8-sig", newline="") as handle:
         sample = handle.read(4096)
@@ -28,13 +28,35 @@ def _read_tva_values(input_csv: str | Path) -> list[str]:
         except csv.Error:
             delimiter = ";"
         reader = csv.DictReader(handle, delimiter=delimiter)
-        values: list[str] = []
+        values: list[dict[str, str]] = []
         for row in reader:
-            raw_tva = row.get("tva") or row.get("TVA Number") or ""
+            raw_tva = (
+                row.get("tva")
+                or row.get("TVA Number")
+                or row.get("VAT Number")
+                or ""
+            )
             digits = re.sub(r"\D", "", raw_tva)
             if digits:
-                values.append(digits)
+                values.append(
+                    {
+                        "tva": digits,
+                        "company_name": row.get("company_name")
+                        or row.get("Company Name")
+                        or "",
+                        "address": row.get("address") or row.get("Address") or "",
+                        "postal_code": row.get("postal_code")
+                        or row.get("Postal Code")
+                        or "",
+                        "city": row.get("city") or row.get("City") or "",
+                    }
+                )
         return values
+
+
+def _read_tva_values(input_csv: str | Path) -> list[str]:
+    """Read normalized digit-only TVAs from comma or semicolon CSV input."""
+    return [record["tva"] for record in _read_tva_records(input_csv)]
 
 
 def _run_tva_batch(
@@ -53,13 +75,19 @@ def _run_tva_batch(
         log.error("TVA input CSV not found: %s", input_path)
         return 1
 
-    tvas = _read_tva_values(input_path)
+    records = _read_tva_records(input_path)
 
     if limit:
-        tvas = tvas[:limit]
-    if not tvas:
+        records = records[:limit]
+    if not records:
         log.error("TVA input CSV contains no valid TVA values")
         return 1
+
+    # Keep the legacy one-column API working while passing identity fields
+    # through for FSMA-enriched inputs.
+    tvas = records
+    if not any(record["company_name"] or record["address"] for record in records):
+        tvas = [record["tva"] for record in records]
 
     rows = collect_tva_links(
         tvas,
