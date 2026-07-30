@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import re
 import sys
@@ -35,6 +36,9 @@ from reswip_leads.core.profile import Profile, load_profile
 from reswip_leads.deduplication.dedupe import DedupeResult, deduplicate
 from reswip_leads.exports.zoho import export_csv, export_xlsx
 from reswip_leads.sources.iqualif.importer import IQualifImporter
+
+
+logger = logging.getLogger("reswip.pipeline")
 
 
 # ── Configuration ──────────────────────────────────────────────────
@@ -411,6 +415,8 @@ class LeadPipeline:
         """Run all stages in order. Returns a :class:`LeadPipelineResult`."""
         started = time.monotonic()
         try:
+            logger.info("pipeline started")
+            logger.info("stage=import starting")
             leads = self._stage_import()
             if not leads:
                 return self._finalize(
@@ -420,10 +426,15 @@ class LeadPipeline:
                     started=started,
                 )
 
+            logger.info("stage=classify starting rows=%d", len(leads))
             leads = self._stage_classify(leads)
+            logger.info("stage=kbo_zip starting rows=%d", len(leads))
             leads = self._stage_verify(leads)
+            logger.info("stage=enrichment starting rows=%d", len(leads))
             leads = self._stage_enrich(leads)
+            logger.info("stage=dedupe starting rows=%d", len(leads))
             leads = self._stage_dedupe(leads)
+            logger.info("stage=export starting rows=%d", len(leads))
             self._stage_export(leads)
         except Exception as exc:  # noqa: BLE001
             return self._finalize(
@@ -485,6 +496,7 @@ class LeadPipeline:
 
         # Build the TVA index once for the whole batch.
         tv_as = {lead.tva for lead in leads if lead.tva}
+        logger.info("KBO ZIP: indexing %d unique TVAs", len(tv_as))
         index: Dict[str, Any] = {}
         try:
             index = self.kbo_reader.build_index(
@@ -539,6 +551,13 @@ class LeadPipeline:
                 "index_size": len(index),
             }
         )
+        logger.info(
+            "KBO ZIP complete: verified=%d inactive=%d not_found=%d index=%d",
+            verified,
+            inactive,
+            not_found,
+            len(index),
+        )
         self._record(metrics)
         return leads
 
@@ -556,7 +575,10 @@ class LeadPipeline:
         last_names_found = 0
         emails_found = 0
         enriched_tvas: set[str] = set()
-        for lead in leads:
+        eligible = [lead for lead in leads if lead.tva]
+        total = len(eligible)
+        logger.info("Pappers + KBO Web: processing %d TVA rows", total)
+        for position, lead in enumerate(leads, start=1):
             if not lead.tva:
                 continue
             lead_enriched = False
@@ -564,6 +586,13 @@ class LeadPipeline:
                 if enricher is None:
                     continue
                 source_name = getattr(enricher, "SOURCE_NAME", "unknown")
+                logger.info(
+                    "provider=%s row=%d/%d tva=%s",
+                    source_name,
+                    min(position, total),
+                    total,
+                    lead.tva,
+                )
                 try:
                     if self._apply_enrichment(lead, enricher):
                         lead_enriched = True
@@ -604,6 +633,14 @@ class LeadPipeline:
             if lead.email:
                 emails_found += 1
 
+            if position == 1 or position % 25 == 0 or position == len(leads):
+                logger.info(
+                    "Pappers + KBO Web progress: completed=%d/%d remaining=%d",
+                    min(position, total),
+                    total,
+                    max(total - position, 0),
+                )
+
         # Infobel is a batch fallback because its browser session is expensive.
         # Only leads with at least one missing contact field are sent to it.
         if self.infobel is not None:
@@ -617,12 +654,25 @@ class LeadPipeline:
                     infobel_by_tva[lead.tva] = lead
             infobel_leads = list(infobel_by_tva.values())
             infobel_candidates = len(infobel_leads)
+            logger.info(
+                "provider=infobel starting candidates=%d remaining_contact_rows=%d",
+                infobel_candidates,
+                infobel_candidates,
+            )
             try:
                 self.infobel.enrich_batch(infobel_leads)
-                for lead in infobel_leads:
+                for position, lead in enumerate(infobel_leads, start=1):
                     if self._apply_enrichment(lead, self.infobel):
                         infobel_enriched += 1
                         enriched_tvas.add(lead.tva)
+                    if position == 1 or position % 25 == 0 or position == len(infobel_leads):
+                        logger.info(
+                            "Infobel progress: completed=%d/%d remaining=%d enriched=%d",
+                            position,
+                            len(infobel_leads),
+                            len(infobel_leads) - position,
+                            infobel_enriched,
+                        )
             except Exception as exc:  # noqa: BLE001
                 metrics.errors.append(f"Infobel batch failed: {exc}")
 

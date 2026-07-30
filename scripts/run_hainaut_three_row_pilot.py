@@ -10,6 +10,7 @@ import csv
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Sequence
 
@@ -99,6 +100,7 @@ def run_pilot(
     pilot_input = output_root / "hainaut_three_row_input.csv"
     pilot_output = output_root / "hainaut_three_row_enriched.csv"
     summary_path = output_root / "hainaut_three_row_summary.json"
+    status_path = output_root / "status.json"
     log_path = Path(log_file) if log_file else output_root / "run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -110,6 +112,42 @@ def run_pilot(
         ],
         force=True,
     )
+
+    stage_status: Dict[str, dict] = {}
+
+    def write_status(
+        current_stage: str,
+        *,
+        completed: int = 0,
+        total: int = len(selected),
+        message: str = "",
+    ) -> None:
+        payload = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "current_stage": current_stage,
+            "completed_rows": completed,
+            "total_rows": total,
+            "remaining_rows": max(total - completed, 0),
+            "message": message,
+            "stages": stage_status,
+        }
+        temporary = status_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temporary.replace(status_path)
+
+    def on_stage(name: str, input_count: int, output_count: int) -> None:
+        stage_status[name] = {
+            "status": "completed",
+            "input_rows": input_count,
+            "output_rows": output_count,
+        }
+        write_status(
+            "completed",
+            completed=output_count,
+            message=f"stage={name} completed",
+        )
+
+    write_status("starting", message="pilot process started")
     _write_pilot_input(pilot_input, source, selected)
 
     config = EnrichmentConfig()
@@ -128,6 +166,7 @@ def run_pilot(
             log_file=log_path,
             checkpoint_path=output_root / "infobel_checkpoint.csv",
         ),
+        progress=on_stage,
     ).run()
 
     summary = {
@@ -143,6 +182,11 @@ def run_pilot(
     summary_path.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False),
         encoding="utf-8",
+    )
+    write_status(
+        "finished" if result.success else "failed",
+        completed=len(result.leads),
+        message=result.error or "pipeline finished",
     )
     return summary
 
