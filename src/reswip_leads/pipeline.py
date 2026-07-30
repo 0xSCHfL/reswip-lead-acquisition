@@ -386,6 +386,9 @@ class LeadPipeline:
         email_recheck: Optional[Any] = None,
         importer: Optional[IQualifImporter] = None,
         progress: Optional[Callable[[str, int, int], None]] = None,
+        kbo_checkpoint_path: Optional[str] = None,
+        pre_infobel_checkpoint_path: Optional[str] = None,
+        resume_pre_infobel: bool = False,
     ) -> None:
         self.profile = profile
         self.output_path = str(output_path)
@@ -407,6 +410,9 @@ class LeadPipeline:
         self.email_recheck = email_recheck
 
         self.progress = progress
+        self.kbo_checkpoint_path = kbo_checkpoint_path
+        self.pre_infobel_checkpoint_path = pre_infobel_checkpoint_path
+        self.resume_pre_infobel = resume_pre_infobel
         self._stages: List[PipelineStageMetrics] = []
 
     # ── Public entry point ──────────────────────────────────────
@@ -416,8 +422,30 @@ class LeadPipeline:
         started = time.monotonic()
         try:
             logger.info("pipeline started")
-            logger.info("stage=import starting")
-            leads = self._stage_import()
+            if self.resume_pre_infobel and self.pre_infobel_checkpoint_path:
+                leads = self._load_lead_checkpoint(self.pre_infobel_checkpoint_path)
+                logger.info(
+                    "resuming from pre-Infobel checkpoint rows=%d; skipping import, KBO, Pappers and KBO Web",
+                    len(leads),
+                )
+                self.pappers = None
+                self.kbo_web = None
+                self.email_recheck = None
+            else:
+                logger.info("stage=import starting")
+                leads = self._stage_import()
+                if not leads:
+                    return self._finalize(
+                        leads=[],
+                        success=False,
+                        error="import produced no leads",
+                        started=started,
+                    )
+
+                logger.info("stage=classify starting rows=%d", len(leads))
+                leads = self._stage_classify(leads)
+                logger.info("stage=kbo_zip starting rows=%d", len(leads))
+                leads = self._stage_verify(leads)
             if not leads:
                 return self._finalize(
                     leads=[],
@@ -426,10 +454,6 @@ class LeadPipeline:
                     started=started,
                 )
 
-            logger.info("stage=classify starting rows=%d", len(leads))
-            leads = self._stage_classify(leads)
-            logger.info("stage=kbo_zip starting rows=%d", len(leads))
-            leads = self._stage_verify(leads)
             logger.info("stage=enrichment starting rows=%d", len(leads))
             leads = self._stage_enrich(leads)
             logger.info("stage=dedupe starting rows=%d", len(leads))
@@ -551,6 +575,8 @@ class LeadPipeline:
                 "index_size": len(index),
             }
         )
+        if self.kbo_checkpoint_path:
+            self._write_lead_checkpoint(self.kbo_checkpoint_path, leads)
         logger.info(
             "KBO ZIP complete: verified=%d inactive=%d not_found=%d index=%d",
             verified,
@@ -640,6 +666,14 @@ class LeadPipeline:
                     total,
                     max(total - position, 0),
                 )
+
+        if self.pre_infobel_checkpoint_path:
+            self._write_lead_checkpoint(self.pre_infobel_checkpoint_path, leads)
+            logger.info(
+                "checkpoint=pre_infobel saved rows=%d path=%s",
+                len(leads),
+                self.pre_infobel_checkpoint_path,
+            )
 
         # Infobel is a batch fallback because its browser session is expensive.
         # Only leads with at least one missing contact field are sent to it.
@@ -742,6 +776,17 @@ class LeadPipeline:
         changed = False
         source_name = getattr(enricher, "SOURCE_NAME", "")
 
+        if source_name == "pappers" and lead.first_name:
+            invalid_name_tokens = {
+                "administrateur", "administratrice", "bestuurder",
+                "directeur", "directrice", "fondateur", "fondatrice",
+                "gérant", "gérante", "manager", "président", "présidente",
+                "zaakvoerder",
+            }
+            if lead.first_name.casefold().strip() in invalid_name_tokens:
+                lead.first_name = None
+                changed = True
+
         # KBO is the authoritative source for company status. Other
         # enrichers may return their own operation status, but that must not
         # be confused with the legal company status.
@@ -814,6 +859,23 @@ class LeadPipeline:
         self._stages.append(metrics)
         if self.progress is not None:
             self.progress(metrics.name, metrics.input_count, metrics.output_count)
+
+    @staticmethod
+    def _write_lead_checkpoint(path: str, leads: List[Lead]) -> None:
+        output = Path(path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        temporary = output.with_suffix(output.suffix + ".tmp")
+        fieldnames = list(leads[0].to_dict().keys()) if leads else []
+        with temporary.open("w", encoding="utf-8-sig", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(lead.to_dict() for lead in leads)
+        temporary.replace(output)
+
+    @staticmethod
+    def _load_lead_checkpoint(path: str) -> List[Lead]:
+        with Path(path).open(encoding="utf-8-sig", newline="") as handle:
+            return [Lead.from_dict(row) for row in csv.DictReader(handle)]
 
     def _finalize(
         self,

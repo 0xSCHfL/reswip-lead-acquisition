@@ -50,6 +50,28 @@ PAPPERS_COMPANY_URL = f"{PAPPERS_BASE_URL}/fr/company/{{slug}}-{{ent}}"
 _SLUG_STRIP = re.compile(r"[^a-z0-9\s-]")
 _SLUG_COLLAPSE = re.compile(r"[\s]+")
 _DIRECTOR_RE = re.compile(r"/fr/search-officers\?q=([^\"]+)")
+_DIRECTOR_CONTEXT_RE = re.compile(
+    r'href="/fr/search-officers\?q=([^\"]+)"[^>]*>.*?</a>\s*(?:—|-)\s*([^<\n]+)',
+    re.IGNORECASE | re.DOTALL,
+)
+# Pappers sometimes exposes the mandate/function label through the same
+# officer-search URL used for a person's name. These must never become a
+# contact's first name.
+_NON_PERSON_FIRST_NAMES = {
+    "administrateur",
+    "administratrice",
+    "bestuurder",
+    "directeur",
+    "directrice",
+    "fondateur",
+    "fondatrice",
+    "gérant",
+    "gérante",
+    "manager",
+    "président",
+    "présidente",
+    "zaakvoerder",
+}
 _CF_EMAIL_RE = re.compile(r"/cdn-cgi/l/email-protection#([a-f0-9]+)")
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 _PHONE_RE = re.compile(
@@ -115,6 +137,7 @@ def decode_cf_email(encoded: str) -> str:
 @dataclass
 class _ParsedPappersPage:
     directors: List[Tuple[str, str]]
+    positions: Dict[Tuple[str, str], str]
     emails: List[str]
     phones: List[str]
     websites: List[str]
@@ -130,10 +153,22 @@ def _parse_pappers_page(html: str) -> _ParsedPappersPage:
     stable schema for it.
     """
     if not html:
-        return _ParsedPappersPage([], [], [], [])
+        return _ParsedPappersPage([], {}, [], [], [])
 
     # Directors — first/last from the search-officers URL.
     directors: List[Tuple[str, str]] = []
+    positions: Dict[Tuple[str, str], str] = {}
+    for context_match in _DIRECTOR_CONTEXT_RE.finditer(html):
+        encoded = unquote(context_match.group(1))
+        parts = encoded.split("+")
+        if len(parts) < 2:
+            continue
+        first = parts[0].strip()
+        last = " ".join(p.strip() for p in parts[1:] if p.strip()).strip()
+        key = (first, last)
+        position = " ".join(context_match.group(2).split())
+        if first and last and position and first.casefold() not in _NON_PERSON_FIRST_NAMES:
+            positions[key] = position
     seen_directors: set = set()
     for match in _DIRECTOR_RE.finditer(html):
         encoded = unquote(match.group(1))
@@ -143,6 +178,8 @@ def _parse_pappers_page(html: str) -> _ParsedPappersPage:
         first = parts[0].strip()
         last = " ".join(p.strip() for p in parts[1:] if p.strip()).strip()
         if not first or not last:
+            continue
+        if first.casefold() in _NON_PERSON_FIRST_NAMES:
             continue
         key = (first.lower(), last.lower())
         if key in seen_directors:
@@ -199,6 +236,7 @@ def _parse_pappers_page(html: str) -> _ParsedPappersPage:
 
     return _ParsedPappersPage(
         directors=directors,
+        positions=positions,
         emails=emails,
         phones=phones,
         websites=websites,
@@ -311,6 +349,18 @@ class PappersEnricher(BaseEnricher):
                         note="Person linked to the company TVA",
                     )
                 )
+                position = parsed.positions.get((first, last), "")
+                if position:
+                    fields["position"] = position
+                    evidence.append(
+                        Evidence(
+                            source=self.SOURCE_NAME,
+                            source_url=source_url,
+                            field="position",
+                            confidence=confidence_for("position"),
+                            note="Function shown next to the Pappers officer",
+                        )
+                    )
                 evidence.append(
                     Evidence(
                         source=self.SOURCE_NAME,

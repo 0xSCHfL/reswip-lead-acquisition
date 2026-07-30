@@ -101,6 +101,8 @@ def run_pilot(
     pilot_output = output_root / "hainaut_three_row_enriched.csv"
     summary_path = output_root / "hainaut_three_row_summary.json"
     status_path = output_root / "status.json"
+    kbo_checkpoint = output_root / "kbo_verified.csv"
+    pre_infobel_checkpoint = output_root / "pre_infobel.csv"
     log_path = Path(log_file) if log_file else output_root / "run.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -169,6 +171,9 @@ def run_pilot(
             checkpoint_path=output_root / "infobel_checkpoint.csv",
         ),
         progress=on_stage,
+        kbo_checkpoint_path=str(kbo_checkpoint),
+        pre_infobel_checkpoint_path=str(pre_infobel_checkpoint),
+        resume_pre_infobel=pre_infobel_checkpoint.exists(),
     ).run()
 
     summary = {

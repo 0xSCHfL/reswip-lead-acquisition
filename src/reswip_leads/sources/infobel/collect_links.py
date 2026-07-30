@@ -287,6 +287,15 @@ def _wait_for_results_or_abuse(page, timeout_ms: int = 10_000) -> str:
     return "unknown"
 
 
+def _infobel_search_location(record: dict[str, str]) -> str:
+    """Choose a stable location filter for a TVA search."""
+    return (
+        (record.get("postal_code") or "").strip()
+        or (record.get("city") or "").strip()
+        or (record.get("address") or "").strip()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Search form interaction
 # ---------------------------------------------------------------------------
@@ -706,14 +715,21 @@ def collect_tva_links(
             for index, record in enumerate(tvas, 1):
                 expected = record if isinstance(record, dict) else {"tva": record}
                 tva = expected.get("tva", "")
-                log.info("[%d/%d] searching Infobel by TVA %s", index, len(tvas), tva)
+                location = _infobel_search_location(expected)
+                log.info(
+                    "[%d/%d] searching Infobel by TVA %s + location %s",
+                    index,
+                    len(tvas),
+                    tva,
+                    location or "(none)",
+                )
                 rows_before = len(rows)
                 try:
                     page.goto(_INFOBEL_HOME, wait_until="domcontentloaded", timeout=30_000)
                     page.wait_for_timeout(3_000)
                     if not _wait_for_challenge(page, headed):
                         continue
-                    _fill_search_form(page, tva, "")
+                    _fill_search_form(page, tva, location)
                     try:
                         state = _wait_for_results_or_abuse(page)
                     except Exception:

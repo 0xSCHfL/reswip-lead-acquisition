@@ -74,12 +74,23 @@ class InfobelEnricher:
 
         try:
             with tmp_in.open("w", encoding="utf-8-sig", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=["tva"])
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["tva", "company_name", "address", "postal_code", "city"],
+                )
                 writer.writeheader()
                 for lead in missing:
                     digits = re.sub(r"\D", "", lead.tva)
                     if digits:
-                        writer.writerow({"tva": digits})
+                        writer.writerow(
+                            {
+                                "tva": digits,
+                                "company_name": lead.company_name or "",
+                                "address": lead.address or "",
+                                "postal_code": lead.postcode or "",
+                                "city": lead.city or "",
+                            }
+                        )
 
             cmd = [
                 sys.executable,
@@ -90,7 +101,7 @@ class InfobelEnricher:
                 "-o",
                 str(tmp_out),
                 "--log-level",
-                "WARNING",
+                "INFO",
                 "--profile-dir",
                 self._profile_dir,
             ]

@@ -62,7 +62,7 @@ def _first_email(page) -> str:
 _SKIPPED_DOMAINS = (
     "ejustice.just.fgov.be", "economie.fgov.be", "facebook.com", "twitter.com",
     "linkedin.com", "instagram.com", "youtube.com", "google.", "nbb.be",
-    "infobelpro.com",
+    "infobelpro.com", "cmp.sirdata.com",
 )
 
 

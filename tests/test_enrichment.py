@@ -456,6 +456,14 @@ class TestPappersUrlConstruction:
 
 
 class TestPappersParsing:
+    def test_ignores_function_label_as_person_name(self):
+        parsed = _parse_pappers_page(
+            '<a href="/fr/search-officers?q=bestuurder+Dupont">role</a>'
+            '<a href="/fr/search-officers?q=Jean+Martin">person</a>'
+        )
+
+        assert parsed.directors == [("Jean", "Martin")]
+
     def test_decode_cf_email_known_ciphertext(self):
         # Verified manually: key=0x42, "a@b.com" -> 422302206c212d2f
         assert decode_cf_email("422302206c212d2f") == "a@b.com"
@@ -476,6 +484,7 @@ class TestPappersParsing:
         first_names = [d[0] for d in parsed.directors]
         assert "Jean" in first_names
         assert any(d[1] == "Dupont" for d in parsed.directors)
+        assert parsed.positions[("Jean", "Dupont")] == "Administrateur"
 
     def test_parse_pappers_page_decodes_cloudflare_email(self, pappers_html):
         parsed = _parse_pappers_page(pappers_html)
