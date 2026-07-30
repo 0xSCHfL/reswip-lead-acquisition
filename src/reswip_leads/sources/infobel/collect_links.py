@@ -201,7 +201,13 @@ def _wait_for_human(page, reason: str, timeout_ms: int = 300_000) -> bool:
             )
             return True
         except Exception:
-            pass
+            # The audio solver can set a valid token while Infobel still
+            # shows the abuse page. Let the caller reload the page to finish
+            # the server-side redirect instead of starting another solver.
+            log.info(
+                "reCAPTCHA token accepted; deferring challenge completion to page reload"
+            )
+            return True
 
     # Fallback: just click checkbox
     _try_click_turnstile(page)
@@ -263,6 +269,22 @@ def _wait_for_challenge(page, headed: bool, timeout_ms: int = 300_000) -> bool:
             log.warning("challenge did not clear within %ds", timeout_ms // 1000)
             return False
     return False
+
+
+def _wait_for_results_or_abuse(page, timeout_ms: int = 10_000) -> str:
+    """Return the first post-search state within the timeout budget."""
+    page.wait_for_function(
+        """() => {
+            const url = window.location.href;
+            return url.includes('/BusinessResults') || url.includes('/Landing/Abuse');
+        }""",
+        timeout=timeout_ms,
+    )
+    if "/Landing/Abuse" in page.url:
+        return "abuse"
+    if "/BusinessResults" in page.url:
+        return "results"
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -693,26 +715,18 @@ def collect_tva_links(
                         continue
                     _fill_search_form(page, tva, "")
                     try:
-                        page.wait_for_url("**/BusinessResults**", timeout=30_000)
+                        state = _wait_for_results_or_abuse(page)
                     except Exception:
-                        if "/Landing/Abuse" in page.url:
-                            log.warning("abuse redirect for TVA %s", tva)
-                            if not headed or not _wait_for_challenge(page, headed):
-                                rows.append(
-                                    {
-                                        "search_tva": tva,
-                                        "infobel_status": "no_result",
-                                    }
-                                )
-                                continue
-                        else:
-                            rows.append(
-                                {
-                                    "search_tva": tva,
-                                    "infobel_status": "no_result",
-                                }
-                            )
+                        rows.append({"search_tva": tva, "infobel_status": "no_result"})
+                        continue
+                    if state == "abuse":
+                        log.warning("abuse redirect for TVA %s", tva)
+                        if not headed or not _wait_for_challenge(page, headed):
+                            rows.append({"search_tva": tva, "infobel_status": "no_result"})
                             continue
+                    elif state != "results":
+                        rows.append({"search_tva": tva, "infobel_status": "no_result"})
+                        continue
                     page.wait_for_timeout(3_000)
                     if not _wait_for_challenge(page, headed):
                         rows.append(
