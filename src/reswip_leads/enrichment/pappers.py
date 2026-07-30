@@ -240,11 +240,6 @@ class PappersEnricher(BaseEnricher):
         lookup_key = ent if not company_name else f"{ent}|{company_name}"
 
         try:
-            if self.config.delay and self._session is None:
-                # We are making a real network call — gentle pacing
-                # to avoid getting blocked. In tests with a fake
-                # session this is skipped.
-                time.sleep(self.config.delay)
             response = self._request(url)
         except Exception as exc:  # noqa: BLE001
             return EnrichmentResult(

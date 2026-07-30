@@ -150,7 +150,9 @@ def run_pilot(
     write_status("starting", message="pilot process started")
     _write_pilot_input(pilot_input, source, selected)
 
-    config = EnrichmentConfig()
+    # Pace public-site requests to reduce rate limiting and abuse-page
+    # triggers. This applies between Pappers and KBO Web requests.
+    config = EnrichmentConfig(delay=2.0)
     kbo_zip = Path(kbo_zip_path) if kbo_zip_path else None
     result = LeadPipeline(
         profile=load_profile("energy"),

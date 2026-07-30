@@ -191,6 +191,7 @@ class BaseEnricher(abc.ABC):
     ) -> None:
         self.config = config or EnrichmentConfig()
         self._session = session  # may be None — _request creates a default
+        self._last_request_at: Optional[float] = None
 
     # ── Public contract ─────────────────────────────────────────
 
@@ -314,14 +315,18 @@ class BaseEnricher(abc.ABC):
         attempts = self.config.retries + 1
         for attempt in range(attempts):
             try:
-                if attempt > 0 and self.config.delay:
-                    time.sleep(self.config.delay)
+                if self.config.delay and self._last_request_at is not None:
+                    elapsed = time.monotonic() - self._last_request_at
+                    remaining = self.config.delay - elapsed
+                    if remaining > 0:
+                        time.sleep(remaining)
                 response = session.get(
                     url,
                     params=params,
                     timeout=self.config.timeout,
                     headers={"User-Agent": self.config.user_agent},
                 )
+                self._last_request_at = time.monotonic()
             except Exception as exc:  # noqa: BLE001 - any network failure
                 last_exc = exc
                 logger.debug(

@@ -211,6 +211,33 @@ class _FakeSession:
 
 
 class TestBaseEnricher:
+    def test_request_paces_successive_requests(self, monkeypatch):
+        """A configured delay applies between live HTTP requests."""
+        from reswip_leads.enrichment.pappers import PappersEnricher
+
+        class Session:
+            def get(self, *args, **kwargs):
+                return type("Response", (), {"status_code": 200})()
+
+        clock = iter([100.0, 100.5, 102.5])
+        sleeps = []
+        monkeypatch.setattr(
+            "reswip_leads.enrichment.base.time.monotonic",
+            lambda: next(clock),
+        )
+        monkeypatch.setattr(
+            "reswip_leads.enrichment.base.time.sleep",
+            sleeps.append,
+        )
+
+        enricher = PappersEnricher(
+            session=Session(), config=EnrichmentConfig(delay=2.0)
+        )
+        enricher._request("https://example.test/one")
+        enricher._request("https://example.test/two")
+
+        assert sleeps == [1.5]
+
     def test_enrichment_config_defaults_are_valid(self):
         cfg = EnrichmentConfig()
         assert cfg.timeout == 15.0
