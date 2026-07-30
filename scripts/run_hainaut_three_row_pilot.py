@@ -37,8 +37,13 @@ def _read_source(path: Path) -> tuple[List[str], List[Dict[str, str]]]:
         return list(reader.fieldnames or []), list(reader)
 
 
-def select_pilot_rows(path: str | Path, limit: int = 3) -> List[Dict[str, str]]:
-    """Select the first *limit* named rows with valid normalized Belgian TVAs."""
+def select_pilot_rows(
+    path: str | Path,
+    limit: int = 3,
+    *,
+    include_invalid_tva: bool = False,
+) -> List[Dict[str, str]]:
+    """Select source rows, requiring valid TVAs unless full mode is enabled."""
     fieldnames, rows = _read_source(Path(path))
     if "Company Name" not in fieldnames or "TVA Number" not in fieldnames:
         raise ValueError("source must contain Company Name and TVA Number columns")
@@ -47,7 +52,7 @@ def select_pilot_rows(path: str | Path, limit: int = 3) -> List[Dict[str, str]]:
     for row in rows:
         company = (row.get("Company Name") or "").strip()
         tva = normalize_tva(row.get("TVA Number"))
-        if not company or not tva:
+        if not company or (not tva and not include_invalid_tva):
             continue
         copied = dict(row)
         copied["TVA Number"] = tva
@@ -55,7 +60,7 @@ def select_pilot_rows(path: str | Path, limit: int = 3) -> List[Dict[str, str]]:
         if len(selected) == limit:
             break
 
-    if len(selected) != limit:
+    if len(selected) != limit and not include_invalid_tva:
         raise ValueError(f"source contains fewer than {limit} valid TVA rows")
     return selected
 
@@ -80,11 +85,16 @@ def run_pilot(
     kbo_zip_path: str | Path | None = None,
     limit: int = 3,
     log_file: str | Path | None = None,
+    include_invalid_tva: bool = False,
 ) -> dict:
     source = Path(source_path)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
-    selected = select_pilot_rows(source, limit=limit)
+    selected = select_pilot_rows(
+        source,
+        limit=limit,
+        include_invalid_tva=include_invalid_tva,
+    )
 
     pilot_input = output_root / "hainaut_three_row_input.csv"
     pilot_output = output_root / "hainaut_three_row_enriched.csv"
@@ -116,6 +126,7 @@ def run_pilot(
             headed=True,
             profile_dir=profile_dir,
             log_file=log_path,
+            checkpoint_path=output_root / "infobel_checkpoint.csv",
         ),
     ).run()
 
@@ -144,6 +155,11 @@ def main() -> int:
     parser.add_argument("--kbo-zip", default="")
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--log-file", default="")
+    parser.add_argument(
+        "--include-invalid-tva",
+        action="store_true",
+        help="Keep named rows without a TVA (use for the complete source DB)",
+    )
     args = parser.parse_args()
     summary = run_pilot(
         args.source,
@@ -152,6 +168,7 @@ def main() -> int:
         args.kbo_zip or None,
         args.limit,
         args.log_file or None,
+        args.include_invalid_tva,
     )
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0 if summary["success"] else 1

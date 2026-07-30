@@ -42,10 +42,12 @@ class InfobelEnricher:
         headed: bool = False,
         profile_dir: str = "~/.infobel-enricher-profile",
         log_file: str | Path | None = None,
+        checkpoint_path: str | Path | None = None,
     ):
         self._headed = headed
         self._profile_dir = profile_dir
         self._log_file = Path(log_file) if log_file else None
+        self._checkpoint_path = Path(checkpoint_path) if checkpoint_path else None
         self._results: Dict[str, Dict[str, str]] = {}
 
     # ── Public API ──────────────────────────────────────────────
@@ -66,7 +68,9 @@ class InfobelEnricher:
         )
 
         tmp_in = Path(tempfile.mktemp(suffix="_infobel_input.csv"))
-        tmp_out = tmp_in.with_name(tmp_in.stem + "_out.csv")
+        tmp_out = self._checkpoint_path or tmp_in.with_name(tmp_in.stem + "_out.csv")
+        if self._checkpoint_path:
+            tmp_out.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             with tmp_in.open("w", encoding="utf-8-sig", newline="") as f:
@@ -111,24 +115,11 @@ class InfobelEnricher:
                     stderr=subprocess.STDOUT if child_log else None,
                 )
 
-            # ── Parse results ───────────────────────────────
-            if tmp_out.exists() and tmp_out.stat().st_size > 0:
-                with tmp_out.open(encoding="utf-8-sig") as f:
-                    reader = csv.DictReader(f)
-                    for row in reader:
-                        tva = (row.get("search_tva") or "").strip()
-                        if tva:
-                            self._results[tva] = dict(row)
-                logger.info(
-                    "Infobel batch: cached %d / %d results",
-                    len(self._results),
-                    len(missing),
-                )
-            else:
-                logger.warning("Infobel pipeline produced no output")
+            self._load_results(tmp_out, len(missing))
 
         except subprocess.TimeoutExpired:
             logger.error("Infobel pipeline timed out after 600s")
+            self._load_results(tmp_out, len(missing))
         except Exception as exc:
             logger.error("Infobel batch failed: %s", exc)
         finally:
@@ -136,10 +127,27 @@ class InfobelEnricher:
                 tmp_in.unlink(missing_ok=True)
             except Exception:
                 pass
-            try:
-                tmp_out.unlink(missing_ok=True)
-            except Exception:
-                pass
+            if not self._checkpoint_path:
+                try:
+                    tmp_out.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+    def _load_results(self, path: Path, expected: int) -> None:
+        """Load completed rows, including rows persisted before a timeout."""
+        if not path.exists() or path.stat().st_size == 0:
+            logger.warning("Infobel pipeline produced no output")
+            return
+        with path.open(encoding="utf-8-sig") as handle:
+            for row in csv.DictReader(handle):
+                tva = (row.get("search_tva") or "").strip()
+                if tva:
+                    self._results[tva] = dict(row)
+        logger.info(
+            "Infobel batch: cached %d / %d results",
+            len(self._results),
+            expected,
+        )
 
     def enrich(self, tva: str, company_name: Optional[str] = None) -> Dict[str, Any]:
         if not tva:

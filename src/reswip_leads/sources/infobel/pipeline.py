@@ -17,6 +17,32 @@ from pathlib import Path
 log = logging.getLogger("infobel_pipeline")
 
 
+def _write_checkpoint_rows(path: str | Path, rows: list[dict[str, str]]) -> None:
+    """Atomically persist all completed Infobel rows."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = ["search_tva", "infobel_url"]
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
+    temporary_path = output_path.with_suffix(output_path.suffix + ".tmp")
+    with temporary_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+    temporary_path.replace(output_path)
+
+
+def _load_checkpoint_rows(path: str | Path) -> list[dict[str, str]]:
+    """Load completed rows from a prior interrupted run."""
+    output_path = Path(path)
+    if not output_path.exists():
+        return []
+    with output_path.open(encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
 def _read_tva_records(input_csv: str | Path) -> list[dict[str, str]]:
     """Read TVAs and optional FSMA identity fields from CSV input."""
     input_path = Path(input_csv)
@@ -76,10 +102,22 @@ def _run_tva_batch(
         return 1
 
     records = _read_tva_records(input_path)
+    completed_rows = _load_checkpoint_rows(output)
+    completed_tvas = {
+        re.sub(r"\D", "", row.get("search_tva", ""))
+        for row in completed_rows
+        if row.get("search_tva")
+    }
+    if completed_tvas:
+        log.info("Resuming: %d completed TVA rows loaded from checkpoint", len(completed_tvas))
+        records = [record for record in records if record["tva"] not in completed_tvas]
 
     if limit:
         records = records[:limit]
     if not records:
+        if completed_rows:
+            log.info("Checkpoint already contains all requested TVA rows")
+            return 0
         log.error("TVA input CSV contains no valid TVA values")
         return 1
 
@@ -89,30 +127,25 @@ def _run_tva_batch(
     if not any(record["company_name"] or record["address"] for record in records):
         tvas = [record["tva"] for record in records]
 
+    all_rows = list(completed_rows)
+
+    def save_checkpoint(row: dict[str, str]) -> None:
+        all_rows.append(row)
+        _write_checkpoint_rows(output, all_rows)
+
     rows = collect_tva_links(
         tvas,
         headed=headed,
         profile_dir=profile_dir,
+        on_row=save_checkpoint,
     )
 
+    rows = all_rows
     if not rows:
         log.error("No Infobel detail URLs found for the TVA batch")
         return 1
 
-    output_path = Path(output)
-    fieldnames = ["search_tva", "infobel_url"]
-    for row in rows:
-        for key in row:
-            if key not in fieldnames:
-                fieldnames.append(key)
-    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=fieldnames,
-            extrasaction="ignore",
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+    _write_checkpoint_rows(output, rows)
 
     updated = sum(1 for row in rows if (row.get("business_name") or "").strip())
     log.info("TVA batch complete: %d/%d rows scraped", updated, len(rows))

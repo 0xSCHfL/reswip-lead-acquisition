@@ -654,6 +654,7 @@ def collect_tva_links(
     *,
     headed: bool = True,
     profile_dir: str = "~/.infobel-scrape-profile",
+    on_row=None,
 ) -> list[dict[str, str]]:
     """Search several TVAs in one persistent Chromium context."""
     from playwright.sync_api import sync_playwright
@@ -684,6 +685,7 @@ def collect_tva_links(
                 expected = record if isinstance(record, dict) else {"tva": record}
                 tva = expected.get("tva", "")
                 log.info("[%d/%d] searching Infobel by TVA %s", index, len(tvas), tva)
+                rows_before = len(rows)
                 try:
                     page.goto(_INFOBEL_HOME, wait_until="domcontentloaded", timeout=30_000)
                     page.wait_for_timeout(3_000)
@@ -752,6 +754,9 @@ def collect_tva_links(
                     rows.append(
                         {"search_tva": tva, "infobel_status": "no_result"}
                     )
+                finally:
+                    if on_row is not None and len(rows) > rows_before:
+                        on_row(rows[-1])
         finally:
             try:
                 context.close()

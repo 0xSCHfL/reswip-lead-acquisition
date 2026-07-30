@@ -607,11 +607,15 @@ class LeadPipeline:
         # Infobel is a batch fallback because its browser session is expensive.
         # Only leads with at least one missing contact field are sent to it.
         if self.infobel is not None:
-            infobel_leads = [
-                lead
-                for lead in leads
-                if lead.tva and not (lead.email and lead.phone and lead.website)
-            ]
+            infobel_by_tva: dict[str, Lead] = {}
+            for lead in leads:
+                if (
+                    lead.tva
+                    and not (lead.email and lead.phone and lead.website)
+                    and lead.tva not in infobel_by_tva
+                ):
+                    infobel_by_tva[lead.tva] = lead
+            infobel_leads = list(infobel_by_tva.values())
             infobel_candidates = len(infobel_leads)
             try:
                 self.infobel.enrich_batch(infobel_leads)

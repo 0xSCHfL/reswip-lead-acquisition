@@ -905,6 +905,26 @@ class TestLeadPipelineEnrichStage:
         enrich_stage = next(s for s in result.stages if s.name == "enrich")
         assert enrich_stage.notes["infobel_candidates"] == 1
 
+    def test_infobel_deduplicates_repeated_tva_targets(
+        self, tmp_path, energy_profile: Profile
+    ):
+        first = Lead(company_name="First branch", tva="0123456789")
+        second = Lead(company_name="Second branch", tva="BE0123456789")
+        infobel = _FakeInfobelEnricher()
+
+        result = LeadPipeline(
+            profile=energy_profile,
+            output_path=str(tmp_path / "out.csv"),
+            input_csvs=["x.csv"],
+            importer=_FakeImporter([first, second]),  # type: ignore[arg-type]
+            infobel=infobel,  # type: ignore[arg-type]
+        ).run()
+
+        assert result.success
+        assert infobel.batch_calls == [["BE0123456789"]]
+        enrich_stage = next(s for s in result.stages if s.name == "enrich")
+        assert enrich_stage.notes["infobel_candidates"] == 1
+
     def test_kbo_status_is_merged_without_overwriting_contact_fields(
         self, tmp_path, energy_profile: Profile
     ):

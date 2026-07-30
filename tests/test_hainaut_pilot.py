@@ -88,6 +88,20 @@ def test_select_pilot_rows_supports_twenty_row_batch(tmp_path):
     assert rows[-1]["Company Name"] == "Company 19"
 
 
+def test_select_pilot_rows_full_mode_keeps_named_rows_without_tva(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text(
+        "\ufeffCompany Name;TVA Number\nOne;BE0123456789\nTwo;\n",
+        encoding="utf-8",
+    )
+
+    rows = select_pilot_rows(source, limit=2, include_invalid_tva=True)
+
+    assert len(rows) == 2
+    assert rows[1]["Company Name"] == "Two"
+    assert rows[1]["TVA Number"] == ""
+
+
 def test_iqualif_importer_preserves_tva_number_column(tmp_path):
     source = tmp_path / "source.csv"
     source.write_text(
@@ -141,15 +155,18 @@ def test_infobel_tva_batch_uses_one_batch_link_collection(tmp_path, monkeypatch)
     )
     calls = []
 
-    def fake_collect(tvas, *, headed, profile_dir):
+    def fake_collect(tvas, *, headed, profile_dir, on_row=None):
         calls.append(list(tvas))
-        return [
+        rows = [
             {
                 "search_tva": tvas[0],
                 "infobel_url": "https://example.test/one",
                 "business_name": "One",
             },
         ]
+        if on_row:
+            on_row(rows[0])
+        return rows
 
     monkeypatch.setattr(
         "reswip_leads.sources.infobel.collect_links.collect_tva_links",
