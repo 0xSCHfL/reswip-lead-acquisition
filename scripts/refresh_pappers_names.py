@@ -14,7 +14,7 @@ from reswip_leads.enrichment.pappers import PappersEnricher
 log = logging.getLogger("refresh_pappers_names")
 
 
-def run(input_path: Path, output_path: Path, log_path: Path) -> None:
+def run(input_path: Path, output_path: Path, log_path: Path, missing_only: bool = False) -> None:
     with input_path.open(encoding="utf-8-sig", newline="") as handle:
         sample = handle.read(4096)
         handle.seek(0)
@@ -44,6 +44,8 @@ def run(input_path: Path, output_path: Path, log_path: Path) -> None:
         tva = re.sub(r"\D", "", row.get(tva_key, "") or "")
         if not tva:
             continue
+        if missing_only and all((row.get(key) or '').strip() for key in ('First Name', 'Last Name', 'Position')):
+            continue
         if (row.get("First Name") or "").strip().casefold() in invalid_first_names:
             row["First Name"] = ""
         result = enricher.enrich(tva, row.get(company_key, "") or "")
@@ -71,8 +73,9 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--log", required=True, type=Path)
+    parser.add_argument("--missing-only", action="store_true")
     args = parser.parse_args()
-    run(args.input, args.output, args.log)
+    run(args.input, args.output, args.log, args.missing_only)
     return 0
 
 
