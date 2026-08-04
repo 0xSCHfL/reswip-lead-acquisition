@@ -13,11 +13,21 @@ dependencies = [
     "beautifulsoup4",
     "openpyxl",
     "playwright",
+    "fastapi",
+    "uvicorn[standard]",
+    "SQLAlchemy>=2.0",
+    "alembic",
+    "psycopg[binary]",
+    "redis",
+    "rq",
+    "pydantic-settings",
+    "python-multipart",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "httpx2",
 ]
 
 [tool.setuptools.packages.find]

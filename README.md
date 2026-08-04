@@ -184,6 +184,31 @@ Databases/<Sector>/Belgium/<Region>/
 └── Reports/
 ```
 
+## Lead Acquisition UI
+
+The local UI provides two workflows: enrich an existing iQualif file or
+scrape new companies through a supported source. The first MVP runs the
+existing Python pipeline in an RQ background worker, stores job progress in
+PostgreSQL, and keeps input/output files in the configured Google Drive-backed
+directory.
+
+Start it with Docker Compose:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Open `http://localhost:5173`. The API health endpoint is at
+`http://localhost:8000/health`. The default input directory is:
+`/home/sohaib/GoogleDrive/WorkDrive/Databases/Iqualif`.
+
+The browser upload is stored under `data/uploads/` during local development.
+The original uploaded file is never overwritten. Outputs are written under
+`data/ui-outputs/<job-id>/`; the database stores job status, stage progress,
+row outcomes, and evidence metadata. In production, replace these local
+directories with tenant-isolated object storage such as S3.
+
 ## Infobel Scraping (reCAPTCHA Auto-Solve)
 
 Scrapes [Infobel Belgium](https://www.infobel.com/fr/belgium/) business details — name, address, TVA, phone, email, hours, financial data — by searching sector + region.

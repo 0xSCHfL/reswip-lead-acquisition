@@ -1,0 +1,76 @@
+services:
+  api:
+    build: .
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      RESWIP_DATABASE_URL: postgresql+psycopg://reswip:reswip@postgres:5432/reswip
+      RESWIP_REDIS_URL: redis://redis:6379/0
+      RESWIP_INPUT_DIRECTORY: /data/iqualif
+      RESWIP_UPLOAD_DIRECTORY: /data/uploads
+      RESWIP_OUTPUT_DIRECTORY: /data/outputs
+      RESWIP_DEFAULT_PROFILE: ${RESWIP_DEFAULT_PROFILE:-profiles/energy.yaml}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ${GOOGLE_DRIVE_IQUALIF_DIR:-./data/iqualif}:/data/iqualif:ro
+      - ./data/uploads:/data/uploads
+      - ./data/ui-outputs:/data/outputs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: rq worker lead-acquisition --url redis://redis:6379/0
+    environment:
+      RESWIP_DATABASE_URL: postgresql+psycopg://reswip:reswip@postgres:5432/reswip
+      RESWIP_REDIS_URL: redis://redis:6379/0
+      RESWIP_INPUT_DIRECTORY: /data/iqualif
+      RESWIP_UPLOAD_DIRECTORY: /data/uploads
+      RESWIP_OUTPUT_DIRECTORY: /data/outputs
+      RESWIP_DEFAULT_PROFILE: ${RESWIP_DEFAULT_PROFILE:-profiles/energy.yaml}
+    volumes:
+      - ${GOOGLE_DRIVE_IQUALIF_DIR:-./data/iqualif}:/data/iqualif:ro
+      - ./data/uploads:/data/uploads
+      - ./data/ui-outputs:/data/outputs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reswip
+      POSTGRES_PASSWORD: reswip
+      POSTGRES_DB: reswip
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reswip -d reswip"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres-data:
