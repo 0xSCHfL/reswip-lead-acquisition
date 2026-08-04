@@ -67,3 +67,13 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+
+# Local application data
+data/uploads/
+data/ui-outputs/
+data/iqualif/
